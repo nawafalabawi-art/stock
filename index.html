@@ -178,6 +178,12 @@ td .who{color:var(--muted);font-size:.8rem}
 .lcard .btn{width:100%;background:var(--mango);color:#2A1418;height:56px}
 .lerr{background:rgba(240,122,110,.18);color:#FFD3CC;border-radius:12px;padding:10px 12px;font-weight:600}
 
+.aiin{width:80px;height:42px;border-radius:10px;border:1.5px solid var(--line);background:var(--warn-soft);font:inherit;font-weight:700;text-align:center;color:var(--ink)}
+.aiin.ok{background:var(--ok-soft)}
+td.plus{color:var(--ret);font-weight:700}td.minus{color:var(--ok);font-weight:700}
+.mt th,.mt td{padding:8px 6px}.mt td:first-child{white-space:normal;min-width:110px;line-height:1.35}@media(max-width:600px){.mt .hp{display:none}}
+.addrow{display:grid;grid-template-columns:1fr 110px auto;gap:8px;margin-top:10px}
+.addrow input{height:46px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);font:inherit;color:var(--ink);padding:0 10px;min-width:0}
 </style>
 </head>
 <body>
@@ -226,6 +232,7 @@ td .who{color:var(--muted);font-size:.8rem}
   <section id="v-day" hidden></section>
   <section id="v-week" hidden></section>
   <section id="v-items" hidden></section>
+  <section id="v-match" hidden></section>
 </main>
 
 <nav class="tabs"><div class="wrap" role="tablist" id="tabs"></div></nav>
@@ -254,6 +261,7 @@ const ICON = {
   entry:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/></svg>',
   day:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
   week:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+  match:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h10M4 12h7M4 17h10M17 10l2 2 3-4"/></svg>',
   items:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/></svg>',
   dl:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg>',
   print:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><rect x="7" y="14" width="10" height="7" rx="1"/></svg>'
@@ -374,7 +382,9 @@ async function loadWeek(quiet){
     for (const b of res.entries) seen[b.date + '_' + b.itemId] = b.at;
     weekLoaded[wk] = true;
     for (let k = 0; k < 7; k++) delete server[addDays(wk, k)];
-    Object.assign(server, m); LS.set('server', trimServer()); render();
+    Object.assign(server, m); LS.set('server', trimServer());
+    if (isOwner()) await loadAI(wk);
+    softRender();
   } catch (err){
     if (err.code === 'net'){ online = false; setSync(); }
     else if (!authFailed(err) && !quiet) toast(ERR[err.code] || 'ما گدرت أجيب البيانات');
@@ -486,19 +496,19 @@ function renderItems(){
 function render(){
   if (!session) return;
   renderHeader();
-  ({entry: renderList, day: renderDay, week: renderWeek, items: renderItems})[state.view]();
+  ({entry: renderList, day: renderDay, week: renderWeek, items: renderItems, match: renderMatch})[state.view]();
 }
 function buildTabs(){
-  const tabs = [['entry','الإدخال'],['day','اليوم']].concat(isOwner() ? [['week','الأسبوع'],['items','الأصناف']] : []);
+  const tabs = [['entry','الإدخال'],['day','اليوم']].concat(isOwner() ? [['week','الأسبوع'],['match','المطابقة'],['items','الأصناف']] : []);
   if (!tabs.some(t => t[0] === state.view)) state.view = 'entry';
   $('#tabs').innerHTML = tabs.map(([k, l]) => `<button role="tab" data-v="${k}" aria-selected="${k === state.view}">${ICON[k]}<span>${l}</span></button>`).join('');
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => setView(b.dataset.v));
-  for (const k of ['entry','day','week','items']) $('#v-' + k).hidden = k !== state.view;
+  for (const k of ['entry','day','week','items','match']) $('#v-' + k).hidden = k !== state.view;
 }
 function setView(v){
   state.view = v;
   document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.v === v));
-  for (const k of ['entry','day','week','items']) $('#v-' + k).hidden = k !== v;
+  for (const k of ['entry','day','week','items','match']) $('#v-' + k).hidden = k !== v;
   render(); window.scrollTo(0, 0);
 }
 function setDate(d){ const wk = weekStart(state.date) !== weekStart(d); state.date = d; render(); if (wk) loadWeek(); }
@@ -578,6 +588,113 @@ function openItem(id){
   $('#ef').onsubmit = ev => { ev.preventDefault(); save(); };
   $('#save').onclick = save;
   $('#del') && ($('#del').onclick = () => { if (!confirm('تمسح تسجيل «' + it.name + '» لهذا اليوم؟')) return; queue(state.date, id, null); closeSheet(); toast('انمسح'); });
+}
+
+
+// ---------- المدير: مطابقة قائمة أبو إياد ويا الإدخال ----------
+let aiDocs = {}, aiBusy = {}, aiDirty = false;          // aiDocs[date] = {qty: {itemId: number}}
+async function loadAI(wk){
+  try {
+    const res = await call('aiWeek', {week: wk});
+    for (let k = 0; k < 7; k++){ const d = addDays(wk, k); if (!aiBusy[d]) aiDocs[d] = {qty: {}}; }
+    for (const x of res.rows || []) if (!aiBusy[x.date]) aiDocs[x.date].qty[x.itemId] = x.qty;
+  } catch (err){ if (err.code === 'bad' && state.view === 'match') toast('الخادم ما محدّث للمطابقة. لازم تضيف Match.gs وتسوي New version'); }
+}
+function softRender(){
+  const a = document.activeElement;
+  if (state.view === 'match' && a && a.classList && a.classList.contains('aiin')){ aiDirty = true; return; }
+  render();
+}
+const aiOf = date => (aiDocs[date] = aiDocs[date] || {qty: {}});
+function matchRows(date){
+  const m = dayMap(date), a = aiOf(date).qty;
+  const ids = new Set(Object.keys(m).concat(Object.keys(a)));
+  const rows = [...ids].map(id => {
+    const e = m[id] || null, it = byId[id] || {id, name: (e && e.name) || id, unit: (e && e.unit) || '', sku: (e && e.sku) || ''};
+    const ours = e ? inQty(e) : 0, ai = a[id] == null ? null : +a[id], u = unitPrice(id);
+    const diff = ai == null ? null : Math.round((ai - ours) * 1000) / 1000;
+    return {id, it, e, ours, ai, diff, u, val: diff == null ? 0 : diff * u};
+  });
+  rows.sort((x, y) => coll.compare(x.it.name, y.it.name));
+  return {rows, checked: rows.filter(r => r.ai != null).length, withDiff: rows.filter(r => r.diff).length,
+    total: rows.reduce((s, r) => s + r.val, 0), plus: rows.reduce((s, r) => s + (r.val > 0 ? r.val : 0), 0), minus: rows.reduce((s, r) => s + (r.val < 0 ? r.val : 0), 0)};
+}
+async function saveAI(date){
+  if (aiBusy[date]){ aiBusy[date] = 'again'; return; }
+  aiBusy[date] = 'busy';
+  try {
+    const q = aiOf(date).qty, m = dayMap(date), items = {};
+    for (const id of Object.keys(q)){ const it = byId[id] || m[id] || {}; items[id] = {qty: q[id], sku: it.sku || '', name: it.name || ''}; }
+    await call('aiSave', {date, items});
+  } catch (err){ if (!authFailed(err)) toast(err.code === 'net' ? 'المطابقة تحتاج إنترنت. ما انحفظت' : err.code === 'bad' ? 'الخادم ما محدّث للمطابقة' : 'ما انحفظت المطابقة'); }
+  const again = aiBusy[date] === 'again'; delete aiBusy[date];
+  if (again) saveAI(date);
+}
+function setAI(date, id, v){ const a = aiOf(date).qty; if (v == null) delete a[id]; else a[id] = v; saveAI(date); }
+function renderMatch(){
+  const v = $('#v-match'), d = state.date, t = matchRows(d);
+  let h = `<div class="kpis"><div class="kpi"><span>أصناف اليوم</span><b class="num">${t.rows.length}</b></div>
+    <div class="kpi"><span>مدققة (مكتوب كمية أبو إياد)</span><b class="num">${t.checked}</b></div>
+    <div class="kpi"><span>أصناف بيها فرق</span><b class="num" style="color:var(--ret)">${t.withDiff}</b></div>
+    <div class="kpi"><span>يطالب أكثر / أقل</span><b class="num" style="font-size:1.05rem"><span style="color:var(--ret)">${fmt(t.plus)}</span> / <span style="color:var(--ok)">${fmt(-t.minus)}</span></b></div>
+    <div class="kpi wide"><span>صافي الفرق (قائمة أبو إياد − إدخالنا) بالدينار شامل الضريبة</span><b class="num">${fmt(t.total)} د.ع</b></div></div>
+    <p class="muted" style="margin:10px 0 0">اكتب كمية أبو إياد جنب كل صنف. الموجب = يطالب بأكثر من اللي استلمناه. تنحفظ بالشيت لحالها (تحتاج نت).</p>
+    <div class="h3row"><h3>${DAYS[parse(d).getDay()]} ${dmy(d)}</h3><div class="btnrow">
+      <button class="btn ghost sm" id="mFill">الباقي مطابق</button><button class="btn ghost sm" id="mX">${ICON.dl}Excel اليوم</button><button class="btn ghost sm" id="mXW">${ICON.dl}Excel الأسبوع</button></div></div>`;
+  if (!t.rows.length) h += `<div class="empty">ما انسجل شي لهذا اليوم بعد. تكدر تضيف صنف من قائمة أبو إياد من تحت.</div>`;
+  else {
+    h += `<div class="tblwrap"><table class="mt"><thead><tr><th>الصنف</th><th class="n">إدخالنا</th><th class="n">أبو إياد</th><th class="n">الفرق</th><th class="n hp">السعر</th><th class="n">القيمة</th></tr></thead><tbody>`;
+    for (const r of t.rows){
+      const cls = r.diff > 0 ? 'plus' : r.diff < 0 ? 'minus' : '';
+      h += `<tr><td>${esc(r.it.name)}<br><span class="who">${esc(unitLabel(r.it))}${r.e ? '' : ' • مو مدخل عدنا'}</span></td><td class="n num">${fq(r.ours)}</td>
+        <td class="n"><input class="aiin num${r.ai != null && !r.diff ? ' ok' : ''}" inputmode="decimal" data-ai="${esc(r.id)}" value="${r.ai == null ? '' : fq(r.ai)}" aria-label="كمية أبو إياد: ${esc(r.it.name)}"></td>
+        <td class="n num ${cls}" data-d>${r.diff == null ? '' : fq(r.diff)}</td><td class="n num hp">${r.u ? fmt(r.u) : '<span class="who">ماكو سعر</span>'}</td><td class="n num ${cls}" data-v>${r.diff ? fmt(r.val) : ''}</td></tr>`;
+    }
+    h += `<tr class="tot"><td>المجموع</td><td></td><td></td><td></td><td class="hp"></td><td class="n num">${fmt(t.total)}</td></tr></tbody></table></div>`;
+  }
+  const opts = catalog.filter(c => !t.rows.some(r => r.id === c.id)).map(c => `<option value="${esc(c.name)}"></option>`).join('');
+  h += `<div class="h3row"><h3>صنف بقائمة أبو إياد وما مدخل عدنا</h3></div>
+    <div class="addrow"><input id="mAddN" list="mList" placeholder="اسم الصنف"><input id="mAddQ" inputmode="decimal" placeholder="الكمية"><button class="btn primary sm" id="mAdd">إضافة</button></div><datalist id="mList">${opts}</datalist>`;
+  const ds = weekDates(); let W = 0;
+  h += `<div class="h3row"><h3>الأسبوع ${dmy(ds[0])} إلى ${dmy(ds[6])}</h3></div><div class="tblwrap"><table><thead><tr><th>اليوم</th><th class="n">مدققة</th><th class="n">بيها فرق</th><th class="n">صافي الفرق</th></tr></thead><tbody>`;
+  for (const dd of ds){ const x = matchRows(dd); W += x.total;
+    h += `<tr${x.rows.length ? '' : ' style="color:var(--muted)"'}><td><button class="btn ghost sm" data-go="${dd}">${DAYS[parse(dd).getDay()]} ${dmy(dd).slice(0,-5)}</button></td><td class="n num">${x.checked} / ${x.rows.length}</td><td class="n num">${x.withDiff || ''}</td><td class="n num">${x.checked ? fmt(x.total) : ''}</td></tr>`; }
+  h += `<tr class="tot"><td>المجموع</td><td></td><td></td><td class="n num">${fmt(W)}</td></tr></tbody></table></div>`;
+  v.innerHTML = h;
+  v.querySelectorAll('[data-go]').forEach(b => b.onclick = () => setDate(b.dataset.go));
+  v.querySelectorAll('.aiin').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const r = t.rows.find(x => x.id === inp.dataset.ai), tr = inp.closest('tr'), val = readNum(inp);
+      const diff = val == null || isNaN(val) ? null : Math.round((val - r.ours) * 1000) / 1000;
+      tr.querySelector('[data-d]').textContent = diff == null ? '' : fq(diff); tr.querySelector('[data-v]').textContent = diff ? fmt(diff * r.u) : '';
+    });
+    inp.addEventListener('change', () => { const val = readNum(inp); if (val != null && (isNaN(val) || val < 0)){ toast('اكتب رقم صحيح'); return; } setAI(d, inp.dataset.ai, val); });
+    inp.addEventListener('blur', () => setTimeout(() => { const a = document.activeElement; if (!(a && a.classList && a.classList.contains('aiin'))){ aiDirty = false; render(); } }, 0));
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); const all = [...v.querySelectorAll('.aiin')]; const n = all[all.indexOf(inp) + 1]; inp.dispatchEvent(new Event('change')); if (n) n.focus(); else inp.blur(); } });
+  });
+  $('#mFill').onclick = () => { let n = 0; for (const r of t.rows) if (r.ai == null && r.e){ aiOf(d).qty[r.id] = r.ours; n++; } if (!n){ toast('كل الأصناف مكتوبة'); return; } saveAI(d); render(); toast(`${n} صنف انكتب مطابق`); };
+  $('#mAdd').onclick = () => {
+    const nm = $('#mAddN').value.trim(), q = readNum($('#mAddQ')); const it = catalog.find(c => c.name === nm) || catalog.find(c => norm(c.name) === norm(nm));
+    if (!it){ toast('اختار الصنف من القائمة'); return; } if (!(q > 0)){ toast('اكتب الكمية'); return; }
+    setAI(d, it.id, q); render(); toast('انضاف');
+  };
+  $('#mX').onclick = () => exportMatch([d]); $('#mXW').onclick = () => exportMatch(ds);
+}
+function exportMatch(dates){
+  if (typeof XLSX === 'undefined'){ toast('ملف Excel ما جاهز. افتح التطبيق والنت شغال مرة وحدة'); return; }
+  const aoa = [['التاريخ','اليوم','SKU','الصنف','الوحدة','إدخالنا','قائمة أبو إياد','الفرق','السعر','الضريبة','السعر مع الضريبة','قيمة الفرق']];
+  const sum = [['اليوم','التاريخ','أصناف','مدققة','بيها فرق','صافي الفرق']]; let T = 0;
+  for (const d of dates){
+    const t = matchRows(d); T += t.total;
+    sum.push([DAYS[parse(d).getDay()], dmy(d), t.rows.length, t.checked, t.withDiff, Math.round(t.total)]);
+    for (const r of t.rows){ const p = prices[r.id] || {};
+      aoa.push([dmy(d), DAYS[parse(d).getDay()], r.it.sku || '', r.it.name, unitLabel(r.it), r.ours, r.ai == null ? '' : r.ai, r.diff == null ? '' : r.diff, +p.price || 0, +p.tax || 0, Math.round(r.u), r.diff ? Math.round(r.val) : '']); }
+  }
+  sum.push(['المجموع','','','','',Math.round(T)]);
+  const wb = XLSX.utils.book_new();
+  const w0 = XLSX.utils.aoa_to_sheet(sum); w0['!cols'] = [10,12,8,8,9,14].map(w => ({wch: w})); XLSX.utils.book_append_sheet(wb, w0, 'الملخص');
+  const w1 = XLSX.utils.aoa_to_sheet(aoa); w1['!cols'] = [11,9,9,40,7,11,12,9,9,7,11,13].map(w => ({wch: w})); XLSX.utils.book_append_sheet(wb, w1, 'المطابقة');
+  saveFile(dates.length > 1 ? `مطابقة_أبو_إياد_${dates[0]}_إلى_${dates[dates.length-1]}.xlsx` : `مطابقة_أبو_إياد_${dates[0]}.xlsx`, xlsxBlob(wb));
 }
 
 // ---------- files: Excel + printable page ----------
