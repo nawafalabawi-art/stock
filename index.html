@@ -526,19 +526,23 @@ const readNum = el => { const v = (el.value || '').replace(/[٠-٩]/g, d => '٠�
 const isKg = it => /^(kg|كغم|كيلو)$/i.test(String(it.unit || '').trim());
 const unitLabel = it => isKg(it) ? 'كغم' : ({EA: 'قطعة', PACK: 'باكيت', BUNCH: 'حزمة', BAG: 'كيس', BOX: 'صندوق'}[String(it.unit || '').toUpperCase()] || it.unit || '');
 function boxRowHTML(b){
-  const opts = boxTypes.map(t => `<option value="${esc(t.id)}"${b.t === t.id ? ' selected' : ''}>${esc(t.name)} • ${fq(t.kg)} كغم</option>`).join('');
-  return `<div class="brow"><div class="fld"><label>نوع الصندوق</label><select class="b-t">${opts}</select></div><div class="fld"><label>العدد</label><input class="b-n" inputmode="numeric" value="${fq(b.n)}"></div><button type="button" class="xbtn b-x" aria-label="حذف">×</button></div>`;
+  const man = b.t === 'manual' || (b.t && !boxTypes.some(t => t.id === b.t));
+  const opts = boxTypes.map(t => `<option value="${esc(t.id)}"${!man && b.t === t.id ? ' selected' : ''}>${esc(t.name)} • ${fq(t.kg)} كغم</option>`).join('') + `<option value="manual"${man ? ' selected' : ''}>وزن ثاني (اكتبه)</option>`;
+  return `<div class="brow"><div class="fld"><label>نوع الصندوق</label><select class="b-t">${opts}</select></div><div class="fld"><label>العدد</label><input class="b-n" inputmode="numeric" value="${fq(b.n)}"></div><button type="button" class="xbtn b-x" aria-label="حذف">×</button>
+    <div class="fld b-kgw"${man ? '' : ' hidden'} style="grid-column:1/-1"><label>وزن الصندوق الواحد (كغم)</label><input class="b-kg" inputmode="decimal" value="${man ? fq(b.kg) : ''}"></div></div>`;
 }
-function openItem(id){
+function openItem(id, add){
   const it = byId[id]; if (!it) return;
-  const e = dayMap(state.date)[id] || {};
+  const old = dayMap(state.date)[id] || {};
+  add = !!add && Object.keys(old).length > 0;
+  const e = add ? {} : old;
   const kg = isKg(it), U = unitLabel(it);
   const kgField = kg ? 'qty' : (it.both ? 'weight' : null);
   const hasBox = !!(e.boxes && e.boxes.length) || +e.boxKg > 0;
   const fld = (k, label, cls = '', hint = 'next') => `<div class="fld ${cls}"><label for="f-${k}">${label}</label><input id="f-${k}" inputmode="decimal" enterkeyhint="${hint}" value="${fq(e[k])}"></div>`;
   const main = kg ? fld('qty', 'الوزن (كغم)') : fld('qty', `العدد (${esc(U)})`);
   const extra = it.both ? (kg ? fld('pieces', 'عدد الحبات') : fld('weight', 'الوزن (كغم)')) : '';
-  const single = boxTypes.length === 1;
+  const single = false;
   const b0 = e.boxes && e.boxes[0] ? e.boxes[0] : {};
   const boxUI = kgField ? `<div class="boxes"><label class="sw"><span>بيه صندوق؟</span><input type="checkbox" id="f-hasbox"${hasBox ? ' checked' : ''}></label>
     <div id="boxBody"${hasBox ? '' : ' hidden'}>
@@ -549,25 +553,40 @@ function openItem(id){
     </div></div>` : '';
   openSheet(`<h2>${esc(it.name)}</h2>
     <div class="sub"><span class="tag num">${esc(it.sku || 'بدون SKU')}</span><span class="tag">الوحدة: ${esc(U)}</span><span class="tag">${DAYS[parse(state.date).getDay()]} ${dmy(state.date)}</span>${e.by && !e._pending ? `<span class="tag">سجّلها: ${esc(byName(e))}</span>` : ''}</div>
+    ${add ? `<div class="note" style="margin:10px 0">المسجل قبل: <b class="num">${fq(inQty(old))}</b> ${esc(U)}${old.pieces ? ' • ' + fq(old.pieces) + ' حبة' : ''}${old.weight ? ' • ' + fq(old.weight) + ' كغم' : ''}${+old.waste ? ' • تالف ' + fq(old.waste) : ''}${+old.graded ? ' • عزل ' + fq(old.graded) : ''}${old.boxes && old.boxes.length ? ' • صناديق ' + boxTxt(old) : ''}<br>اكتب الدفعة الجديدة بس، وتنجمع لحالها.</div>` : ''}
     <form id="ef" autocomplete="off"><div class="grid2">${main}${extra}
       ${fld('waste', `التالف (${esc(U)})`, 'ret')}${fld('graded', `العزل (${esc(U)})`, 'ret', 'done')}</div>${boxUI}<button type="submit" hidden></button></form>
+    ${add ? '<div class="netline" style="margin-top:12px"><span>المجموع بعد الإضافة</span><b class="num" id="sumAdd"></b></div>' : ''}
     ${isOwner() ? '<div class="money" id="money"></div>' : ''}
-    <div class="actions"><button class="btn primary" id="save">حفظ</button>${Object.keys(e).length ? '<button class="btn danger" id="del">مسح</button>' : ''}<button class="btn ghost" id="cancel">إلغاء</button></div>`);
+    <div class="actions"><button class="btn primary" id="save">${add ? 'إضافة وحفظ' : 'حفظ'}</button>${!add && Object.keys(e).length && +e.qty ? '<button class="btn ghost" id="more">+ دفعة ثانية</button>' : ''}${!add && Object.keys(e).length ? '<button class="btn danger" id="del">مسح</button>' : ''}<button class="btn ghost" id="cancel">إلغاء</button></div>`);
   const F = k => $('#f-' + k);
   const boxes = () => {
     if (!kgField || !F('hasbox').checked) return [];
     if (boxTypes.length === 0){ const n = readNum(F('bn')), w = readNum(F('bkg')); return n > 0 && w > 0 ? [{t: 'manual', name: 'صندوق', kg: w, n}] : []; }
     if (single){ const n = readNum(F('bn')); return n > 0 ? [{t: boxTypes[0].id, name: boxTypes[0].name, kg: +boxTypes[0].kg, n}] : []; }
-    return [...document.querySelectorAll('#brows .brow')].map(r => { const t = boxTypes.find(x => x.id === r.querySelector('.b-t').value) || boxTypes[0]; return {t: t.id, name: t.name, kg: +t.kg, n: readNum(r.querySelector('.b-n'))}; }).filter(b => b.n > 0);
+    return [...document.querySelectorAll('#brows .brow')].map(r => { const v = r.querySelector('.b-t').value, n = readNum(r.querySelector('.b-n'));
+      if (v === 'manual') return {t: 'manual', name: 'صندوق', kg: readNum(r.querySelector('.b-kg')) || 0, n};
+      const t = boxTypes.find(x => x.id === v) || boxTypes[0]; return {t: t.id, name: t.name, kg: +t.kg, n}; }).filter(b => b.n > 0 && b.kg > 0);
   };
   const collect = () => {
     const bx = boxes(); const bkg = bx.reduce((a, b) => a + b.kg * b.n, 0);
     return {qty: readNum(F('qty')), pieces: it.both && kg ? readNum(F('pieces')) : null, weight: it.both && !kg ? readNum(F('weight')) : null,
       waste: readNum(F('waste')), graded: readNum(F('graded')), boxes: bx.length ? bx : null, boxKg: bkg ? Math.round(bkg * 1000) / 1000 : null};
   };
+  const addN = (a, b) => (a == null && b == null) ? null : Math.round(((+a || 0) + (+b || 0)) * 1000) / 1000;
+  const merged = x => {
+    if (!add) return x;
+    const bx = (old.boxes || []).map(b => Object.assign({}, b));
+    for (const b of x.boxes || []){ const f = bx.find(o => o.t === b.t && +o.kg === +b.kg); if (f) f.n = (+f.n || 0) + b.n; else bx.push(Object.assign({}, b)); }
+    const bkg = bx.reduce((a, b) => a + b.kg * b.n, 0);
+    return {qty: addN(old.qty, x.qty), pieces: addN(old.pieces, x.pieces), weight: addN(old.weight, x.weight), waste: addN(old.waste, x.waste), graded: addN(old.graded, x.graded),
+      boxes: bx.length ? bx : null, boxKg: bkg ? Math.round(bkg * 1000) / 1000 : null};
+  };
   const upd = () => {
+    document.querySelectorAll('#brows .brow').forEach(r => { r.querySelector('.b-kgw').hidden = r.querySelector('.b-t').value !== 'manual'; });
+    if (add){ const m = merged(collect()); $('#sumAdd').textContent = `${fq(inQty(old))} + ${fq(readNum(F('qty')) || 0)} = ${fq(m.qty || 0)} ${U}`; }
     if (kgField){ $('#boxBody').hidden = !F('hasbox').checked; $('#bk').textContent = fq(collect().boxKg || 0); }
-    if (isOwner()){ const x = collect(); const u = unitPrice(id);
+    if (isOwner()){ const x = merged(collect()); const u = unitPrice(id);
       $('#money').innerHTML = `<div>قيمة الوارد<b class="num">${fmt(r250(inQty(x) * u))}</b></div><div>قيمة الراجع<b class="num" style="color:var(--ret)">${fmt(r250(retQty(x) * u))}</b></div>`; }
   };
   const wireRows = () => document.querySelectorAll('#brows .b-x').forEach(b => b.onclick = () => { if (document.querySelectorAll('#brows .brow').length > 1) b.closest('.brow').remove(); else b.closest('.brow').querySelector('.b-n').value = ''; upd(); });
@@ -577,17 +596,20 @@ function openItem(id){
   $('#cancel').onclick = closeSheet;
   setTimeout(() => F('qty').focus(), 80);
   const save = () => {
-    const x = collect();
-    const nums = ['qty','pieces','weight','waste','graded'].map(k => x[k]);
+    const x0 = collect();
+    const nums = ['qty','pieces','weight','waste','graded'].map(k => x0[k]);
     if (nums.some(v => v != null && (isNaN(v) || v < 0))){ toast('اكتب رقم صحيح (صفر أو أكثر)'); return; }
-    if (F('hasbox') && F('hasbox').checked && !x.boxes){ toast('اكتب عدد الصناديق'); return; }
-    const empty = nums.every(v => v == null || v === 0);
+    if (F('hasbox') && F('hasbox').checked && !x0.boxes){ toast('اكتب عدد الصناديق ووزنها'); return; }
+    if (add && nums.every(v => v == null || v === 0) && !x0.boxes){ toast('اكتب الدفعة الجديدة'); return; }
+    const x = merged(x0);
+    const empty = ['qty','pieces','weight','waste','graded'].every(k => x[k] == null || x[k] === 0);
     const body = Object.assign({date: state.date, itemId: id, sku: it.sku || '', name: it.name, unit: it.unit || '', by: me(), at: new Date().toISOString()}, x);
     queue(state.date, id, empty ? null : body);
-    closeSheet(); toast(!online ? 'انحفظ بالجهاز، ينرسل أول ما يرجع النت' : 'انحفظ');
+    closeSheet(); toast((add ? `انجمع: ${fq(x.qty || 0)} ${U}. ` : '') + (!online ? 'انحفظ بالجهاز، ينرسل أول ما يرجع النت' : 'انحفظ'));
   };
   $('#ef').onsubmit = ev => { ev.preventDefault(); save(); };
   $('#save').onclick = save;
+  $('#more') && ($('#more').onclick = () => openItem(id, true));
   $('#del') && ($('#del').onclick = () => { if (!confirm('تمسح تسجيل «' + it.name + '» لهذا اليوم؟')) return; queue(state.date, id, null); closeSheet(); toast('انمسح'); });
 }
 
