@@ -592,7 +592,7 @@ function openItem(id){
 
 
 // ---------- المدير: مطابقة قائمة أبو إياد ويا الإدخال ----------
-let aiDocs = {}, aiBusy = {}, aiDirty = false;          // aiDocs[date] = {qty: {itemId: number}}
+let aiDocs = {}, aiBusy = {}, aiDirty = false, mAll = LS.get('mAll', true), mQ = '';          // aiDocs[date] = {qty: {itemId: number}}
 async function loadAI(wk){
   try {
     const res = await call('aiWeek', {week: wk});
@@ -633,27 +633,32 @@ async function saveAI(date){
 function setAI(date, id, v){ const a = aiOf(date).qty; if (v == null) delete a[id]; else a[id] = v; saveAI(date); }
 function renderMatch(){
   const v = $('#v-match'), d = state.date, t = matchRows(d);
+  const shown = mAll ? t.rows.concat(catalog.filter(c => !t.rows.some(r => r.id === c.id)).map(c => ({id: c.id, it: c, e: null, ours: 0, ai: null, diff: null, u: unitPrice(c.id), val: 0})))
+    .sort((x, y) => coll.compare(x.it.name, y.it.name)) : t.rows;
+  const wait = t.rows.filter(r => r.ai != null && !r.e).length;
   let h = `<div class="kpis"><div class="kpi"><span>أصناف اليوم</span><b class="num">${t.rows.length}</b></div>
     <div class="kpi"><span>مدققة (مكتوب كمية أبو إياد)</span><b class="num">${t.checked}</b></div>
+    <div class="kpi"><span>مكتوبة وما وصلت/ما مدخلة بعد</span><b class="num">${wait}</b></div>
     <div class="kpi"><span>أصناف بيها فرق</span><b class="num" style="color:var(--ret)">${t.withDiff}</b></div>
     <div class="kpi"><span>يطالب أكثر / أقل</span><b class="num" style="font-size:1.05rem"><span style="color:var(--ret)">${fmt(t.plus)}</span> / <span style="color:var(--ok)">${fmt(-t.minus)}</span></b></div>
     <div class="kpi wide"><span>صافي الفرق (قائمة أبو إياد − إدخالنا) بالدينار شامل الضريبة</span><b class="num">${fmt(t.total)} د.ع</b></div></div>
-    <p class="muted" style="margin:10px 0 0">اكتب كمية أبو إياد جنب كل صنف. الموجب = يطالب بأكثر من اللي استلمناه. تنحفظ بالشيت لحالها (تحتاج نت).</p>
+    <p class="muted" style="margin:10px 0 0">اكتب أوزان قائمة المورد قبل ما توصل المواد، ومن ينسجل الاستلام تطلع كميتنا والفرق لحالهم. الموجب = يطالب بأكثر من اللي استلمناه. تنحفظ بالشيت لحالها (تحتاج نت).</p>
+    <div class="addrow" style="margin-top:10px"><input id="mQ" placeholder="بحث بالاسم أو SKU" value="${esc(mQ)}"><button class="btn ghost sm" id="mAllB">${mAll ? 'اعرض بس اللي بيها كمية' : 'اعرض كل الأصناف'}</button></div>
     <div class="h3row"><h3>${DAYS[parse(d).getDay()]} ${dmy(d)}</h3><div class="btnrow">
       <button class="btn ghost sm" id="mFill">الباقي مطابق</button><button class="btn ghost sm" id="mX">${ICON.dl}Excel اليوم</button><button class="btn ghost sm" id="mXW">${ICON.dl}Excel الأسبوع</button></div></div>`;
-  if (!t.rows.length) h += `<div class="empty">ما انسجل شي لهذا اليوم بعد. تكدر تضيف صنف من قائمة أبو إياد من تحت.</div>`;
+  if (!shown.length) h += `<div class="empty">ما انسجل شي لهذا اليوم بعد. اضغط «اعرض كل الأصناف» واكتب قائمة المورد.</div>`;
   else {
     h += `<div class="tblwrap"><table class="mt"><thead><tr><th>الصنف</th><th class="n">إدخالنا</th><th class="n">أبو إياد</th><th class="n">الفرق</th><th class="n hp">السعر</th><th class="n">القيمة</th></tr></thead><tbody>`;
-    for (const r of t.rows){
+    for (const r of shown){
       const cls = r.diff > 0 ? 'plus' : r.diff < 0 ? 'minus' : '';
-      h += `<tr><td>${esc(r.it.name)}<br><span class="who">${esc(unitLabel(r.it))}${r.e ? '' : ' • مو مدخل عدنا'}</span></td><td class="n num">${fq(r.ours)}</td>
+      h += `<tr data-nm="${esc(norm(r.it.name) + ' ' + (r.it.sku || ''))}"><td>${esc(r.it.name)}<br><span class="who">${esc(unitLabel(r.it))}${r.e || r.ai == null ? '' : ' • ما وصل/ما مدخل بعد'}</span></td><td class="n num">${fq(r.ours)}</td>
         <td class="n"><input class="aiin num${r.ai != null && !r.diff ? ' ok' : ''}" inputmode="decimal" data-ai="${esc(r.id)}" value="${r.ai == null ? '' : fq(r.ai)}" aria-label="كمية أبو إياد: ${esc(r.it.name)}"></td>
         <td class="n num ${cls}" data-d>${r.diff == null ? '' : fq(r.diff)}</td><td class="n num hp">${r.u ? fmt(r.u) : '<span class="who">ماكو سعر</span>'}</td><td class="n num ${cls}" data-v>${r.diff ? fmt(r.val) : ''}</td></tr>`;
     }
     h += `<tr class="tot"><td>المجموع</td><td></td><td></td><td></td><td class="hp"></td><td class="n num">${fmt(t.total)}</td></tr></tbody></table></div>`;
   }
   const opts = catalog.filter(c => !t.rows.some(r => r.id === c.id)).map(c => `<option value="${esc(c.name)}"></option>`).join('');
-  h += `<div class="h3row"><h3>صنف بقائمة أبو إياد وما مدخل عدنا</h3></div>
+  if (!mAll) h += `<div class="h3row"><h3>صنف بقائمة أبو إياد وما مدخل عدنا</h3></div>
     <div class="addrow"><input id="mAddN" list="mList" placeholder="اسم الصنف"><input id="mAddQ" inputmode="decimal" placeholder="الكمية"><button class="btn primary sm" id="mAdd">إضافة</button></div><datalist id="mList">${opts}</datalist>`;
   const ds = weekDates(); let W = 0;
   h += `<div class="h3row"><h3>الأسبوع ${dmy(ds[0])} إلى ${dmy(ds[6])}</h3></div><div class="tblwrap"><table><thead><tr><th>اليوم</th><th class="n">مدققة</th><th class="n">بيها فرق</th><th class="n">صافي الفرق</th></tr></thead><tbody>`;
@@ -664,16 +669,19 @@ function renderMatch(){
   v.querySelectorAll('[data-go]').forEach(b => b.onclick = () => setDate(b.dataset.go));
   v.querySelectorAll('.aiin').forEach(inp => {
     inp.addEventListener('input', () => {
-      const r = t.rows.find(x => x.id === inp.dataset.ai), tr = inp.closest('tr'), val = readNum(inp);
+      const r = shown.find(x => x.id === inp.dataset.ai), tr = inp.closest('tr'), val = readNum(inp);
       const diff = val == null || isNaN(val) ? null : Math.round((val - r.ours) * 1000) / 1000;
       tr.querySelector('[data-d]').textContent = diff == null ? '' : fq(diff); tr.querySelector('[data-v]').textContent = diff ? fmt(diff * r.u) : '';
     });
     inp.addEventListener('change', () => { const val = readNum(inp); if (val != null && (isNaN(val) || val < 0)){ toast('اكتب رقم صحيح'); return; } setAI(d, inp.dataset.ai, val); });
     inp.addEventListener('blur', () => setTimeout(() => { const a = document.activeElement; if (!(a && a.classList && a.classList.contains('aiin'))){ aiDirty = false; render(); } }, 0));
-    inp.addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); const all = [...v.querySelectorAll('.aiin')]; const n = all[all.indexOf(inp) + 1]; inp.dispatchEvent(new Event('change')); if (n) n.focus(); else inp.blur(); } });
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); const all = [...v.querySelectorAll('.aiin')].filter(x => !x.closest('tr').hidden); const n = all[all.indexOf(inp) + 1]; inp.dispatchEvent(new Event('change')); if (n) n.focus(); else inp.blur(); } });
   });
+  const filt = () => { const q = norm(mQ); v.querySelectorAll('tr[data-nm]').forEach(tr => tr.hidden = !!q && !tr.dataset.nm.includes(q)); };
+  $('#mQ').addEventListener('input', e => { mQ = e.target.value; filt(); }); filt();
+  $('#mAllB').onclick = () => { mAll = !mAll; LS.set('mAll', mAll); render(); };
   $('#mFill').onclick = () => { let n = 0; for (const r of t.rows) if (r.ai == null && r.e){ aiOf(d).qty[r.id] = r.ours; n++; } if (!n){ toast('كل الأصناف مكتوبة'); return; } saveAI(d); render(); toast(`${n} صنف انكتب مطابق`); };
-  $('#mAdd').onclick = () => {
+  if ($('#mAdd')) $('#mAdd').onclick = () => {
     const nm = $('#mAddN').value.trim(), q = readNum($('#mAddQ')); const it = catalog.find(c => c.name === nm) || catalog.find(c => norm(c.name) === norm(nm));
     if (!it){ toast('اختار الصنف من القائمة'); return; } if (!(q > 0)){ toast('اكتب الكمية'); return; }
     setAI(d, it.id, q); render(); toast('انضاف');
