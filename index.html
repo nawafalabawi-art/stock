@@ -279,6 +279,7 @@ let boxTypes = LS.get('boxes', []), catalog = LS.get('catalog', []), byId = {}, 
 let outbox = LS.get('outbox', []);              // [{key, date, itemId, body|null, ts}]
 let flushing = false, lastErr = '', online = navigator.onLine !== false, weekLoaded = {};
 const isOwner = () => !!session && session.role === 'admin';
+const canMatch = () => !!session && (session.role === 'admin' || session.role === 'match');
 const me = () => session ? session.name : '';
 function indexCatalog(){ catalog.sort((a, c) => coll.compare(a.name, c.name)); byId = Object.fromEntries(catalog.map(c => [c.id, c])); }
 indexCatalog();
@@ -383,7 +384,7 @@ async function loadWeek(quiet){
     weekLoaded[wk] = true;
     for (let k = 0; k < 7; k++) delete server[addDays(wk, k)];
     Object.assign(server, m); LS.set('server', trimServer());
-    if (isOwner()) await loadAI(wk);
+    if (canMatch()) await loadAI(wk);
     softRender();
   } catch (err){
     if (err.code === 'net'){ online = false; setSync(); }
@@ -499,7 +500,7 @@ function render(){
   ({entry: renderList, day: renderDay, week: renderWeek, items: renderItems, match: renderMatch})[state.view]();
 }
 function buildTabs(){
-  const tabs = [['entry','الإدخال'],['day','اليوم']].concat(isOwner() ? [['week','الأسبوع'],['match','المطابقة'],['items','الأصناف']] : []);
+  const tabs = [['entry','الإدخال'],['day','اليوم']].concat(isOwner() ? [['week','الأسبوع'],['match','المطابقة'],['items','الأصناف']] : canMatch() ? [['match','المطابقة']] : []);
   if (!tabs.some(t => t[0] === state.view)) state.view = 'entry';
   $('#tabs').innerHTML = tabs.map(([k, l]) => `<button role="tab" data-v="${k}" aria-selected="${k === state.view}">${ICON[k]}<span>${l}</span></button>`).join('');
   $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => setView(b.dataset.v));
@@ -632,7 +633,7 @@ async function saveAI(date){
 }
 function setAI(date, id, v){ const a = aiOf(date).qty; if (v == null) delete a[id]; else a[id] = v; saveAI(date); }
 function renderMatch(){
-  const v = $('#v-match'), d = state.date, t = matchRows(d);
+  const v = $('#v-match'), d = state.date, t = matchRows(d), own = isOwner();
   const shown = mAll ? t.rows.concat(catalog.filter(c => !t.rows.some(r => r.id === c.id)).map(c => ({id: c.id, it: c, e: null, ours: 0, ai: null, diff: null, u: unitPrice(c.id), val: 0})))
     .sort((x, y) => coll.compare(x.it.name, y.it.name)) : t.rows;
   const wait = t.rows.filter(r => r.ai != null && !r.e).length;
@@ -640,38 +641,39 @@ function renderMatch(){
     <div class="kpi"><span>مدققة (مكتوب كمية أبو إياد)</span><b class="num">${t.checked}</b></div>
     <div class="kpi"><span>مكتوبة وما وصلت/ما مدخلة بعد</span><b class="num">${wait}</b></div>
     <div class="kpi"><span>أصناف بيها فرق</span><b class="num" style="color:var(--ret)">${t.withDiff}</b></div>
-    <div class="kpi"><span>يطالب أكثر / أقل</span><b class="num" style="font-size:1.05rem"><span style="color:var(--ret)">${fmt(t.plus)}</span> / <span style="color:var(--ok)">${fmt(-t.minus)}</span></b></div>
-    <div class="kpi wide"><span>صافي الفرق (قائمة أبو إياد − إدخالنا) بالدينار شامل الضريبة</span><b class="num">${fmt(t.total)} د.ع</b></div></div>
+    ${own ? `<div class="kpi"><span>يطالب أكثر / أقل</span><b class="num" style="font-size:1.05rem"><span style="color:var(--ret)">${fmt(t.plus)}</span> / <span style="color:var(--ok)">${fmt(-t.minus)}</span></b></div>
+    <div class="kpi wide"><span>صافي الفرق (قائمة أبو إياد − إدخالنا) بالدينار شامل الضريبة</span><b class="num">${fmt(t.total)} د.ع</b></div>` : ''}</div>
     <p class="muted" style="margin:10px 0 0">اكتب أوزان قائمة المورد قبل ما توصل المواد، ومن ينسجل الاستلام تطلع كميتنا والفرق لحالهم. الموجب = يطالب بأكثر من اللي استلمناه. تنحفظ بالشيت لحالها (تحتاج نت).</p>
     <div class="addrow" style="margin-top:10px"><input id="mQ" placeholder="بحث بالاسم أو SKU" value="${esc(mQ)}"><button class="btn ghost sm" id="mAllB">${mAll ? 'اعرض بس اللي بيها كمية' : 'اعرض كل الأصناف'}</button></div>
     <div class="h3row"><h3>${DAYS[parse(d).getDay()]} ${dmy(d)}</h3><div class="btnrow">
       <button class="btn ghost sm" id="mFill">الباقي مطابق</button><button class="btn ghost sm" id="mX">${ICON.dl}Excel اليوم</button><button class="btn ghost sm" id="mXW">${ICON.dl}Excel الأسبوع</button></div></div>`;
   if (!shown.length) h += `<div class="empty">ما انسجل شي لهذا اليوم بعد. اضغط «اعرض كل الأصناف» واكتب قائمة المورد.</div>`;
   else {
-    h += `<div class="tblwrap"><table class="mt"><thead><tr><th>الصنف</th><th class="n">إدخالنا</th><th class="n">أبو إياد</th><th class="n">الفرق</th><th class="n hp">السعر</th><th class="n">القيمة</th></tr></thead><tbody>`;
+    h += `<div class="tblwrap"><table class="mt"><thead><tr><th>الصنف</th><th class="n">إدخالنا</th><th class="n">أبو إياد</th><th class="n">الفرق</th>${own ? '<th class="n hp">السعر</th><th class="n">القيمة</th>' : ''}</tr></thead><tbody>`;
     for (const r of shown){
       const cls = r.diff > 0 ? 'plus' : r.diff < 0 ? 'minus' : '';
       h += `<tr data-nm="${esc(norm(r.it.name) + ' ' + (r.it.sku || ''))}"><td>${esc(r.it.name)}<br><span class="who">${esc(unitLabel(r.it))}${r.e || r.ai == null ? '' : ' • ما وصل/ما مدخل بعد'}</span></td><td class="n num">${fq(r.ours)}</td>
         <td class="n"><input class="aiin num${r.ai != null && !r.diff ? ' ok' : ''}" inputmode="decimal" data-ai="${esc(r.id)}" value="${r.ai == null ? '' : fq(r.ai)}" aria-label="كمية أبو إياد: ${esc(r.it.name)}"></td>
-        <td class="n num ${cls}" data-d>${r.diff == null ? '' : fq(r.diff)}</td><td class="n num hp">${r.u ? fmt(r.u) : '<span class="who">ماكو سعر</span>'}</td><td class="n num ${cls}" data-v>${r.diff ? fmt(r.val) : ''}</td></tr>`;
+        <td class="n num ${cls}" data-d>${r.diff == null ? '' : fq(r.diff)}</td>${own ? `<td class="n num hp">${r.u ? fmt(r.u) : '<span class="who">ماكو سعر</span>'}</td><td class="n num ${cls}" data-v>${r.diff ? fmt(r.val) : ''}</td>` : ''}</tr>`;
     }
-    h += `<tr class="tot"><td>المجموع</td><td></td><td></td><td></td><td class="hp"></td><td class="n num">${fmt(t.total)}</td></tr></tbody></table></div>`;
+    if (own) h += `<tr class="tot"><td>المجموع</td><td></td><td></td><td></td><td class="hp"></td><td class="n num">${fmt(t.total)}</td></tr>`;
+    h += `</tbody></table></div>`;
   }
   const opts = catalog.filter(c => !t.rows.some(r => r.id === c.id)).map(c => `<option value="${esc(c.name)}"></option>`).join('');
   if (!mAll) h += `<div class="h3row"><h3>صنف بقائمة أبو إياد وما مدخل عدنا</h3></div>
     <div class="addrow"><input id="mAddN" list="mList" placeholder="اسم الصنف"><input id="mAddQ" inputmode="decimal" placeholder="الكمية"><button class="btn primary sm" id="mAdd">إضافة</button></div><datalist id="mList">${opts}</datalist>`;
   const ds = weekDates(); let W = 0;
-  h += `<div class="h3row"><h3>الأسبوع ${dmy(ds[0])} إلى ${dmy(ds[6])}</h3></div><div class="tblwrap"><table><thead><tr><th>اليوم</th><th class="n">مدققة</th><th class="n">بيها فرق</th><th class="n">صافي الفرق</th></tr></thead><tbody>`;
+  h += `<div class="h3row"><h3>الأسبوع ${dmy(ds[0])} إلى ${dmy(ds[6])}</h3></div><div class="tblwrap"><table><thead><tr><th>اليوم</th><th class="n">مدققة</th><th class="n">بيها فرق</th>${own ? '<th class="n">صافي الفرق</th>' : ''}</tr></thead><tbody>`;
   for (const dd of ds){ const x = matchRows(dd); W += x.total;
-    h += `<tr${x.rows.length ? '' : ' style="color:var(--muted)"'}><td><button class="btn ghost sm" data-go="${dd}">${DAYS[parse(dd).getDay()]} ${dmy(dd).slice(0,-5)}</button></td><td class="n num">${x.checked} / ${x.rows.length}</td><td class="n num">${x.withDiff || ''}</td><td class="n num">${x.checked ? fmt(x.total) : ''}</td></tr>`; }
-  h += `<tr class="tot"><td>المجموع</td><td></td><td></td><td class="n num">${fmt(W)}</td></tr></tbody></table></div>`;
+    h += `<tr${x.rows.length ? '' : ' style="color:var(--muted)"'}><td><button class="btn ghost sm" data-go="${dd}">${DAYS[parse(dd).getDay()]} ${dmy(dd).slice(0,-5)}</button></td><td class="n num">${x.checked} / ${x.rows.length}</td><td class="n num">${x.withDiff || ''}</td>${own ? `<td class="n num">${x.checked ? fmt(x.total) : ''}</td>` : ''}</tr>`; }
+  h += `${own ? `<tr class="tot"><td>المجموع</td><td></td><td></td><td class="n num">${fmt(W)}</td></tr>` : ''}</tbody></table></div>`;
   v.innerHTML = h;
   v.querySelectorAll('[data-go]').forEach(b => b.onclick = () => setDate(b.dataset.go));
   v.querySelectorAll('.aiin').forEach(inp => {
     inp.addEventListener('input', () => {
       const r = shown.find(x => x.id === inp.dataset.ai), tr = inp.closest('tr'), val = readNum(inp);
       const diff = val == null || isNaN(val) ? null : Math.round((val - r.ours) * 1000) / 1000;
-      tr.querySelector('[data-d]').textContent = diff == null ? '' : fq(diff); tr.querySelector('[data-v]').textContent = diff ? fmt(diff * r.u) : '';
+      tr.querySelector('[data-d]').textContent = diff == null ? '' : fq(diff); if (own) tr.querySelector('[data-v]').textContent = diff ? fmt(diff * r.u) : '';
     });
     inp.addEventListener('change', () => { const val = readNum(inp); if (val != null && (isNaN(val) || val < 0)){ toast('اكتب رقم صحيح'); return; } setAI(d, inp.dataset.ai, val); });
     inp.addEventListener('blur', () => setTimeout(() => { const a = document.activeElement; if (!(a && a.classList && a.classList.contains('aiin'))){ aiDirty = false; render(); } }, 0));
@@ -690,15 +692,16 @@ function renderMatch(){
 }
 function exportMatch(dates){
   if (typeof XLSX === 'undefined'){ toast('ملف Excel ما جاهز. افتح التطبيق والنت شغال مرة وحدة'); return; }
-  const aoa = [['التاريخ','اليوم','SKU','الصنف','الوحدة','إدخالنا','قائمة أبو إياد','الفرق','السعر','الضريبة','السعر مع الضريبة','قيمة الفرق']];
-  const sum = [['اليوم','التاريخ','أصناف','مدققة','بيها فرق','صافي الفرق']]; let T = 0;
+  const own = isOwner();
+  const aoa = [['التاريخ','اليوم','SKU','الصنف','الوحدة','إدخالنا','قائمة أبو إياد','الفرق'].concat(own ? ['السعر','الضريبة','السعر مع الضريبة','قيمة الفرق'] : [])];
+  const sum = [['اليوم','التاريخ','أصناف','مدققة','بيها فرق'].concat(own ? ['صافي الفرق'] : [])]; let T = 0;
   for (const d of dates){
     const t = matchRows(d); T += t.total;
-    sum.push([DAYS[parse(d).getDay()], dmy(d), t.rows.length, t.checked, t.withDiff, Math.round(t.total)]);
+    sum.push([DAYS[parse(d).getDay()], dmy(d), t.rows.length, t.checked, t.withDiff].concat(own ? [Math.round(t.total)] : []));
     for (const r of t.rows){ const p = prices[r.id] || {};
-      aoa.push([dmy(d), DAYS[parse(d).getDay()], r.it.sku || '', r.it.name, unitLabel(r.it), r.ours, r.ai == null ? '' : r.ai, r.diff == null ? '' : r.diff, +p.price || 0, +p.tax || 0, Math.round(r.u), r.diff ? Math.round(r.val) : '']); }
+      aoa.push([dmy(d), DAYS[parse(d).getDay()], r.it.sku || '', r.it.name, unitLabel(r.it), r.ours, r.ai == null ? '' : r.ai, r.diff == null ? '' : r.diff].concat(own ? [+p.price || 0, +p.tax || 0, Math.round(r.u), r.diff ? Math.round(r.val) : ''] : [])); }
   }
-  sum.push(['المجموع','','','','',Math.round(T)]);
+  if (own) sum.push(['المجموع','','','','',Math.round(T)]);
   const wb = XLSX.utils.book_new();
   const w0 = XLSX.utils.aoa_to_sheet(sum); w0['!cols'] = [10,12,8,8,9,14].map(w => ({wch: w})); XLSX.utils.book_append_sheet(wb, w0, 'الملخص');
   const w1 = XLSX.utils.aoa_to_sheet(aoa); w1['!cols'] = [11,9,9,40,7,11,12,9,9,7,11,13].map(w => ({wch: w})); XLSX.utils.book_append_sheet(wb, w1, 'المطابقة');

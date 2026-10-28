@@ -1,5 +1,5 @@
 // يخلي التطبيق يفتح بدون إنترنت. غيّر رقم النسخة إذا عدلت index.html حتى توصل النسخة الجديدة للأجهزة.
-const VERSION = 'tz-stock-v4';
+const VERSION = 'tz-stock-v5';
 const SHELL = ['./', './index.html', './config.js', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'];
 self.addEventListener('install', e => {
