@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>استلام المخزن</title>
+<meta name="theme-color" content="#5C1529">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="المخزن">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+<script src="config.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<style>
+[hidden]{display:none!important}
+/* Layout: phone-first receiving app — dark header band (day + sync state), searchable list, bottom sheet entry, bottom tabs. Laptop: same column, centred at 760px. */
+:root{
+  --bg:#F6F0EE; --surface:#FFFFFF; --sunk:#FAF5F3; --ink:#2A1418; --muted:#76585E; --line:#EADCD8;
+  --band:#5C1529; --band-ink:#FFF4F0; --band-mute:#E2B3BE;
+  --leaf:#8E1F3C; --leaf-ink:#FFFFFF; --leaf-soft:#F6E1E6;
+  --ok:#3E7D3A; --ok-soft:#E3F0DF; --mango:#E8901F;
+  --ret:#C2410C; --ret-soft:#FCE9DC; --warn:#9A6100; --warn-soft:#FDF0D6; --info:#6B3A86; --info-soft:#F0E6F5;
+  --shadow:0 10px 30px rgba(92,21,41,.16); --r:16px;
+  --f-ui:"IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#170C0F; --surface:#221418; --sunk:#1C1013; --ink:#F3E7E9; --muted:#B8979E; --line:#3A2228;
+  --band:#3D0C1A; --band-ink:#FFEDE8; --band-mute:#C98C9B;
+  --leaf:#E0607F; --leaf-ink:#1E070D; --leaf-soft:#3E1824; --ok:#7CC174; --ok-soft:#1D3020; --mango:#F2A541;
+  --ret:#F2875A; --ret-soft:#3B1E12; --warn:#E8B556; --warn-soft:#3A2B12; --info:#C79BDF; --info-soft:#2E1E38;
+  --shadow:0 10px 30px rgba(0,0,0,.55); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#170C0F; --surface:#221418; --sunk:#1C1013; --ink:#F3E7E9; --muted:#B8979E; --line:#3A2228;
+  --band:#3D0C1A; --band-ink:#FFEDE8; --band-mute:#C98C9B;
+  --leaf:#E0607F; --leaf-ink:#1E070D; --leaf-soft:#3E1824; --ok:#7CC174; --ok-soft:#1D3020; --mango:#F2A541;
+  --ret:#F2875A; --ret-soft:#3B1E12; --warn:#E8B556; --warn-soft:#3A2B12; --info:#C79BDF; --info-soft:#2E1E38;
+  --shadow:0 10px 30px rgba(0,0,0,.55); color-scheme:dark}
+*{box-sizing:border-box}
+html,body{min-height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-size:16px;direction:rtl;margin:0;padding-block:0 104px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--band)}
+.wrap{max-width:760px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.num{font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible,label.up:focus-within{outline:3px solid var(--leaf);outline-offset:2px}
+svg{width:20px;height:20px;flex:none}
+/* header band */
+.band{background:var(--band);color:var(--band-ink);position:sticky;top:env(safe-area-inset-top,0px);z-index:5;box-shadow:0 2px 0 rgba(0,0,0,.06)}
+.band .wrap{padding-block:12px 14px;display:grid;gap:12px}
+.top{display:flex;align-items:center;gap:10px}
+.brand{flex:1;min-width:0}
+.brand .k{font-size:.75rem;letter-spacing:.04em;color:var(--band-mute);font-weight:600}
+.brand h1{margin:2px 0 0;font-size:1.3rem;line-height:1.3;text-wrap:balance}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 11px;font-size:.8rem;font-weight:600;background:rgba(255,255,255,.1);color:var(--band-ink);border:1px solid rgba(255,255,255,.16);white-space:nowrap}
+.pill i{width:8px;height:8px;border-radius:50%;background:#8FD67F;display:inline-block}
+.pill.off i{background:#F0B44C}.pill.err i{background:#F07A6E}
+.pill.busy i{animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.3}}
+.dayctl{display:flex;align-items:center;gap:8px}
+.dbtn{width:44px;height:44px;border-radius:12px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:var(--band-ink);display:grid;place-items:center}
+.daybox{flex:1;min-width:0;position:relative;height:44px;border-radius:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;gap:8px;font-weight:600}
+.daybox input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
+.stats{display:flex;gap:16px;font-size:.82rem;color:var(--band-mute)}
+.stats b{color:var(--band-ink);font-size:1rem;margin-inline-start:4px}
+.prog{height:6px;border-radius:6px;background:rgba(255,255,255,.12);overflow:hidden}
+.prog span{display:block;height:100%;background:linear-gradient(90deg,var(--mango),#F2C14E);border-radius:6px;transition:width .3s}
+/* tools */
+.tools{display:grid;gap:10px;padding-block:14px 10px}
+.search{position:relative}
+.search svg{position:absolute;top:50%;transform:translateY(-50%);right:14px;color:var(--muted)}
+.search input{width:100%;height:50px;border-radius:14px;border:1px solid var(--line);background:var(--surface);padding:0 44px 0 14px;font:inherit;font-size:1.05rem;color:var(--ink)}
+.seg{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:3px;gap:3px}
+.seg button{flex:1;border:0;background:none;border-radius:9px;padding:8px 6px;font-size:.9rem;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+/* list */
+ul.items{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.item{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;min-height:64px;width:100%;text-align:right;transition:border-color .15s}
+.item:hover{border-color:color-mix(in srgb,var(--leaf) 40%,var(--line))}
+.mark{width:34px;height:34px;border-radius:10px;background:var(--sunk);display:grid;place-items:center;color:var(--muted);font-size:.75rem;font-weight:700;flex:none}
+.item.done .mark{background:var(--ok);color:#fff}
+.item.done{border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
+.item.pend .mark{background:var(--warn-soft);color:var(--warn)}
+.item .nm{flex:1;min-width:0}
+.item .nm b{display:block;font-weight:600;line-height:1.4}
+.item .nm span{font-size:.78rem;color:var(--muted)}
+.qv{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.qv .q{font-weight:700;font-size:1.05rem;color:var(--ok)}
+.qv .s{font-size:.75rem;color:var(--muted);font-weight:600}
+.qv .r{font-size:.75rem;font-weight:700;color:var(--ret);background:var(--ret-soft);border-radius:6px;padding:1px 6px}
+.qv .p{font-size:.72rem;font-weight:700;color:var(--warn)}
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:28px 20px;text-align:center;color:var(--muted);line-height:1.7}
+/* tabs */
+nav.tabs{position:fixed;inset:auto 0 0 0;z-index:6;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+nav.tabs .wrap{display:flex;gap:4px;padding-block:6px}
+nav.tabs button{flex:1;border:0;background:none;padding:6px 4px;border-radius:12px;font-weight:600;font-size:.78rem;color:var(--muted);display:grid;justify-items:center;gap:2px}
+nav.tabs button[aria-selected=true]{color:var(--leaf);background:var(--leaf-soft)}
+/* sheet */
+.sheet-bg{position:fixed;inset:0;background:rgba(6,14,9,.5);z-index:20}
+.sheet{position:fixed;inset:auto 0 0 0;z-index:21;background:var(--surface);border-radius:24px 24px 0 0;box-shadow:var(--shadow);max-height:92%;overflow:auto}
+.sheet .wrap{padding-block:10px calc(18px + env(safe-area-inset-bottom,0px))}
+.grip{width:44px;height:5px;border-radius:5px;background:var(--line);margin:0 auto 10px}
+.sheet h2{margin:0;font-size:1.25rem;line-height:1.45}
+.sheet .sub{color:var(--muted);font-size:.85rem;margin:4px 0 14px;display:flex;gap:6px;flex-wrap:wrap}
+.tag{background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:2px 8px;font-size:.78rem}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fld{display:grid;gap:5px}
+.fld label{font-size:.82rem;color:var(--muted);font-weight:600}
+.fld input,.fld select{height:58px;border-radius:14px;border:1.5px solid var(--line);background:var(--sunk);font:inherit;font-size:1.45rem;font-weight:700;text-align:center;color:var(--ink);width:100%;min-width:0}
+.fld.ret label{color:var(--ret)}
+.fld select,.fld input.txt{font-size:1rem;font-weight:500;text-align:right;padding:0 12px}
+.money{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.money div{background:var(--sunk);border-radius:12px;padding:8px 12px;font-size:.8rem;color:var(--muted)}
+.money b{display:block;font-size:1.1rem;color:var(--ink)}
+.actions{display:flex;gap:8px;margin-top:14px}
+.btn{height:52px;border-radius:14px;border:1px solid transparent;padding:0 18px;font-weight:700;font-size:1rem;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn.primary{background:var(--leaf);color:var(--leaf-ink);flex:1}
+.btn.ghost{background:var(--surface);border-color:var(--line)}
+.btn.danger{background:var(--ret-soft);color:var(--ret)}
+.btn.sm{height:42px;font-size:.9rem;padding:0 14px}
+.btn:disabled{opacity:.5}
+/* summaries */
+.h3row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:18px 0 10px;flex-wrap:wrap}
+.h3row h3{margin:0;font-size:1.05rem}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:14px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.kpi span{font-size:.78rem;color:var(--muted);font-weight:600}
+.kpi b{display:block;font-size:1.35rem;margin-top:2px}
+.kpi.wide{grid-column:1/-1;background:var(--band);color:var(--band-ink);border-color:var(--band)}
+.kpi.wide span{color:var(--band-mute)}
+.tblwrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{padding:10px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-weight:600;color:var(--muted);font-size:.78rem;background:var(--sunk)}
+td.n,th.n{text-align:left}
+tbody tr:last-child td{border-bottom:0}
+tr.tot td{font-weight:700;background:var(--sunk)}
+td .who{color:var(--muted);font-size:.8rem}
+.note{border-radius:12px;padding:10px 14px;font-size:.88rem;line-height:1.6}
+.note.warn{background:var(--warn-soft);color:var(--warn)}
+.note.info{background:var(--info-soft);color:var(--info)}
+.up{display:flex;align-items:center;justify-content:center;gap:10px;border:2px dashed var(--line);border-radius:var(--r);padding:22px;background:var(--surface);font-weight:600;color:var(--leaf);cursor:pointer;text-align:center}
+.up input{position:absolute;opacity:0;width:1px;height:1px}
+.boxes{margin-top:12px;border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:var(--sunk);display:grid;gap:10px}
+.sw{display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:600}
+.sw input{width:52px;height:30px;accent-color:var(--leaf)}
+.brow{display:grid;grid-template-columns:1fr 92px 40px;gap:8px;align-items:end}
+.brow select,.brow input{height:48px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);font:inherit;font-weight:700;color:var(--ink);width:100%;min-width:0;text-align:center}
+.brow select{text-align:right;padding:0 10px;font-weight:500}
+.xbtn{height:48px;border-radius:12px;border:1px solid var(--line);background:var(--surface)}
+.netline{display:flex;justify-content:space-between;font-size:.9rem;color:var(--muted)}
+.netline b{color:var(--ink);font-size:1.05rem}
+.chk{width:22px;height:22px;accent-color:var(--leaf)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(88px + env(safe-area-inset-bottom,0px));z-index:30;background:var(--ink);color:var(--bg);padding:11px 16px;border-radius:12px;font-weight:600;max-width:calc(100% - 32px);box-shadow:var(--shadow)}
+.muted{color:var(--muted);font-size:.85rem}
+@media (prefers-reduced-motion:no-preference){.sheet{animation:up .2s ease-out}@keyframes up{from{transform:translateY(30px);opacity:.5}}}
+
+
+.hbtn{height:34px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:var(--band-ink);font-size:.8rem;font-weight:600;padding:0 10px}
+#install{background:var(--mango);border-color:var(--mango);color:#2A1418}
+.top .pill{order:2}
+@media (max-width:420px){.top{flex-wrap:wrap}.top .pill{order:3;width:100%;justify-content:center}}
+/* login */
+.login{min-height:100vh;min-height:100dvh;display:grid;place-items:center;background:var(--band);color:var(--band-ink);padding:calc(24px + env(safe-area-inset-top,0px)) 16px calc(24px + env(safe-area-inset-bottom,0px));margin-bottom:-104px}
+.lcard{width:100%;max-width:360px;text-align:center;display:grid;gap:14px}
+.logo{width:76px;height:76px;margin:0 auto;border-radius:22px;background:rgba(255,255,255,.1);display:grid;place-items:center}
+.logo svg{width:40px;height:40px}
+.lcard h1{margin:0;font-size:1.5rem}
+.lcard p{margin:0;color:var(--band-mute)}
+.lcard input{height:64px;border-radius:16px;border:2px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:var(--band-ink);font:inherit;font-size:2rem;font-weight:700;text-align:center;letter-spacing:.4em;width:100%}
+.lcard input{-webkit-text-security:disc}
+.lcard input:focus{outline:none;border-color:var(--mango)}
+.lcard .btn{width:100%;background:var(--mango);color:#2A1418;height:56px}
+.lerr{background:rgba(240,122,110,.18);color:#FFD3CC;border-radius:12px;padding:10px 12px;font-weight:600}
+
+</style>
+</head>
+<body>
+<div id="login" class="login" hidden>
+  <form class="lcard" id="lgForm" autocomplete="off">
+    <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9 12 4l9 5v9l-9 5-9-5V9Z"/><path d="m3 9 9 5 9-5M12 14v9"/></svg></div>
+    <h1>استلام المخزن</h1>
+    <p>TAZWEED • اكتب رقمك السري</p>
+    <input id="lgPin" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="الرقم السري">
+    <div class="lerr" id="lgErr" hidden></div>
+    <button class="btn" id="lgBtn" type="submit">دخول</button>
+  </form>
+</div>
+<div id="app" hidden>
+<header class="band">
+  <div class="wrap">
+    <div class="top">
+      <div class="brand"><div class="k">استلام المخزن • <span id="who"></span></div><h1 id="dayName">…</h1></div>
+      <button class="hbtn" id="install" hidden>تنزيل</button>
+      <button class="hbtn" id="logout" aria-label="خروج">خروج</button>
+      <span class="pill" id="sync"><i></i><span id="syncTxt">جاري الاتصال</span></span>
+    </div>
+    <div class="dayctl">
+      <button class="dbtn" id="prev" aria-label="اليوم السابق"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 6 6 6-6 6"/></svg></button>
+      <div class="daybox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span id="dayDate" class="num"></span><input type="date" id="date" aria-label="اختيار التاريخ"></div>
+      <button class="dbtn" id="next" aria-label="اليوم التالي"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m15 6-6 6 6 6"/></svg></button>
+    </div>
+    <div class="stats"><span>مستلم<b class="num" id="sDone">0</b></span><span>من<b class="num" id="sAll">0</b></span><span id="sPendWrap" hidden>بانتظار الإرسال<b class="num" id="sPend">0</b></span></div>
+    <div class="prog"><span id="prog" style="width:0"></span></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section id="v-entry">
+    <div class="tools">
+      <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="اكتب اسم الصنف أو الـ SKU" autocomplete="off"></div>
+      <div class="seg" role="group" aria-label="عرض">
+        <button data-f="all" aria-pressed="true">الكل</button>
+        <button data-f="todo" aria-pressed="false">الباقية</button>
+        <button data-f="done" aria-pressed="false">المستلمة</button>
+      </div>
+    </div>
+    <ul class="items" id="list"></ul>
+    <div class="empty" id="listEmpty" hidden></div>
+  </section>
+  <section id="v-day" hidden></section>
+  <section id="v-week" hidden></section>
+  <section id="v-items" hidden></section>
+</main>
+
+<nav class="tabs"><div class="wrap" role="tablist" id="tabs"></div></nav>
+<div id="sheetBg" class="sheet-bg" hidden></div>
+<div id="sheet" class="sheet" role="dialog" aria-modal="true" hidden><div class="wrap" id="sheetIn"></div></div>
+<div id="toast" class="toast" role="status" hidden></div>
+
+</div>
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const API = (window.API_URL || '').trim();
+const DAYS = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+const fmt = n => Math.round(n || 0).toLocaleString('en-US');
+const fq = n => (n == null || n === '' ? '' : (+n).toLocaleString('en-US', {maximumFractionDigits: 3}));
+const r250 = v => Math.round((v || 0) / 250) * 250;
+const iso = d => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+const parse = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
+const addDays = (s, k) => { const d = parse(s); d.setDate(d.getDate()+k); return iso(d); };
+const weekStart = s => addDays(s, -parse(s).getDay());
+const dmy = s => { const [y,m,d] = s.split('-'); return `${+d}/${+m}/${y}`; };
+const norm = t => String(t || '').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/\s+/g,' ').trim();
+const coll = new Intl.Collator('ar');
+const esc = s => { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; };
+const ICON = {
+  entry:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/></svg>',
+  day:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
+  week:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+  items:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/></svg>',
+  dl:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg>',
+  print:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><rect x="7" y="14" width="10" height="7" rx="1"/></svg>'
+};
+
+// ---------- local storage (offline) ----------
+const LS = {
+  get(k, d){ try { const v = localStorage.getItem('tz_' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v){ try { localStorage.setItem('tz_' + k, JSON.stringify(v)); return true; } catch { return false; } },
+  del(k){ try { localStorage.removeItem('tz_' + k); } catch {} }
+};
+let session = LS.get('session', null);          // {pin, name, role}
+let state = { date: iso(new Date()), filter: 'all', q: '', view: 'entry' };
+let boxTypes = LS.get('boxes', []), catalog = LS.get('catalog', []), byId = {}, prices = {}, server = LS.get('server', {});
+let outbox = LS.get('outbox', []);              // [{key, date, itemId, body|null, ts}]
+let flushing = false, lastErr = '', online = navigator.onLine !== false, weekLoaded = {};
+const isOwner = () => !!session && session.role === 'admin';
+const me = () => session ? session.name : '';
+function indexCatalog(){ catalog.sort((a, c) => coll.compare(a.name, c.name)); byId = Object.fromEntries(catalog.map(c => [c.id, c])); }
+indexCatalog();
+if (isOwner()) prices = LS.get('prices', {});
+
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 2800); }
+
+// ---------- server ----------
+const ERR = {pin: 'الرقم السري غلط', off: 'حسابك موقوف. راجع المسؤول', locked: 'محاولات غلط كثيرة. انتظر 10 دقايق', server: 'صار خلل بالشيت، بلّغ المسؤول', bad: 'طلب غلط', net: 'ما بيه إنترنت'};
+async function call(action, extra, pin){
+  if (!API) { const e = new Error('noapi'); e.code = 'noapi'; throw e; }
+  let r;
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 25000);
+    r = await fetch(API, {method: 'POST', headers: {'Content-Type': 'text/plain;charset=utf-8'}, body: JSON.stringify(Object.assign({pin: pin || (session && session.pin), action}, extra || {})), signal: ctl.signal, redirect: 'follow'});
+    clearTimeout(t);
+  } catch { const e = new Error('net'); e.code = 'net'; throw e; }
+  let j; try { j = await r.json(); } catch { const e = new Error('net'); e.code = 'net'; throw e; }
+  if (!j.ok){ const e = new Error(j.err); e.code = j.err; e.msg = j.msg; throw e; }
+  return j;
+}
+function authFailed(err){
+  if (err && (err.code === 'pin' || err.code === 'off')){ logout(true, ERR[err.code]); return true; }
+  return false;
+}
+
+// merged view: server data + entries not yet sent
+function dayMap(date){
+  const m = Object.assign({}, server[date] || {});
+  for (const o of outbox) if (o.date === date){ if (o.body) m[o.itemId] = Object.assign({}, o.body, {_pending: true}); else delete m[o.itemId]; }
+  return m;
+}
+const inQty = e => (+e.qty || 0);
+const boxTxt = e => (e.boxes || []).map(b => `${fq(b.n)}×${fq(b.kg)}`).join(' + ');
+const extraTxt = e => e.pieces ? fq(e.pieces) + ' حبة' : (e.weight ? fq(e.weight) + ' كغم' : '');
+const retQty = e => (+e.waste || 0) + (+e.graded || 0);
+const unitPrice = id => { const p = prices[id]; return p ? (+p.price || 0) * (1 + (+p.tax || 0)) : 0; };
+function dayTotals(date){
+  const rows = Object.entries(dayMap(date)).map(([id, e]) => ({ id, e, it: byId[id] || {id, name: e.name || id, unit: e.unit || '', sku: e.sku || ''} }));
+  let ain = 0, art = 0, noPrice = 0;
+  for (const r of rows){ const u = unitPrice(r.id); r.vin = r250(inQty(r.e) * u); r.vrt = r250(retQty(r.e) * u); ain += r.vin; art += r.vrt; if (!u) noPrice++; }
+  rows.sort((x, y) => coll.compare(x.it.name, y.it.name));
+  return { rows, ain, art, due: ain - art, noPrice };
+}
+
+// ---------- sync ----------
+function setSync(){
+  const p = $('#sync'), t = $('#syncTxt'); const n = outbox.length;
+  p.className = 'pill' + (flushing ? ' busy' : '') + (!online ? ' off' : (lastErr ? ' err' : ''));
+  t.textContent = flushing ? 'جاري الإرسال…' : !online ? (n ? `بدون إنترنت • ${n} بالجهاز` : 'بدون إنترنت') : lastErr ? lastErr : (n ? `${n} بانتظار الإرسال` : 'متصل • كلشي مرسل');
+  $('#sPendWrap').hidden = !n; $('#sPend').textContent = n;
+}
+async function flush(){
+  if (flushing || !outbox.length || !session) { setSync(); return; }
+  flushing = true; setSync();
+  try {
+    while (outbox.length){
+      const batch = outbox.slice(0, 40);
+      const res = await call('save', {ops: batch.map(o => ({key: o.key, body: o.body}))});
+      online = true; lastErr = '';
+      const sent = new Map(batch.map(o => [o.key, o.ts]));
+      // move what was sent into the server copy so the screen stays right before the next refresh
+      for (const o of batch){ if (!res.done.includes(o.key)) continue;
+        server[o.date] = server[o.date] || {};
+        if (o.body) server[o.date][o.itemId] = Object.assign({}, o.body, {by: me()}); else delete server[o.date][o.itemId]; }
+      outbox = outbox.filter(o => !(sent.has(o.key) && sent.get(o.key) === o.ts && res.done.includes(o.key)));
+      LS.set('outbox', outbox); LS.set('server', trimServer());
+      if (res.done.length === 0) break;
+    }
+  } catch (err){
+    if (err.code === 'net') online = navigator.onLine !== false ? online : false;
+    else if (!authFailed(err)) lastErr = ERR[err.code] || 'ما انرسل، يحاول مرة ثانية';
+  }
+  flushing = false; setSync(); render();
+}
+function queue(date, itemId, body){
+  const key = date + '_' + itemId;
+  outbox = outbox.filter(o => o.key !== key); outbox.push({key, date, itemId, body, ts: Date.now()});
+  if (!LS.set('outbox', outbox)) toast('تنبيه: الجهاز ما يحفظ بدون إنترنت. خلي النت شغال.');
+  render(); flush();
+}
+function trimServer(){   // keep about 3 weeks on the device
+  const keep = addDays(weekStart(iso(new Date())), -14); const o = {};
+  for (const [d, m] of Object.entries(server)) if (d >= keep || d >= weekStart(state.date)) o[d] = m;
+  server = o; return o;
+}
+let seen = {};
+async function loadWeek(quiet){
+  if (!session) return;
+  const wk = weekStart(state.date);
+  try {
+    const res = await call('week', {week: wk});
+    online = true; if (lastErr === ERR.net) lastErr = '';
+    const m = {};
+    for (const b of res.entries){ (m[b.date] = m[b.date] || {})[b.itemId] = b; }
+    // owner: say when someone else saved something
+    if (isOwner() && weekLoaded[wk]){
+      const fresh = res.entries.filter(b => b.by && b.by !== me() && seen[b.date + '_' + b.itemId] !== b.at);
+      if (fresh.length) toast(fresh.length > 1 ? `${fresh[0].by} وغيره سجّلوا ${fresh.length} أصناف` : `${fresh[0].by} سجّل: ${fresh[0].name} ← ${fq(inQty(fresh[0]))}`);
+    }
+    for (const b of res.entries) seen[b.date + '_' + b.itemId] = b.at;
+    weekLoaded[wk] = true;
+    for (let k = 0; k < 7; k++) delete server[addDays(wk, k)];
+    Object.assign(server, m); LS.set('server', trimServer()); render();
+  } catch (err){
+    if (err.code === 'net'){ online = false; setSync(); }
+    else if (!authFailed(err) && !quiet) toast(ERR[err.code] || 'ما گدرت أجيب البيانات');
+  }
+}
+async function loadCatalog(){
+  if (!session) return;
+  try {
+    const res = await call('catalog');
+    online = true;
+    session.name = res.name; session.role = res.role; LS.set('session', session);
+    catalog = res.items || []; boxTypes = res.boxes || [];
+    prices = res.role === 'admin' ? (res.prices || {}) : {};
+    LS.set('catalog', catalog); LS.set('boxes', boxTypes);
+    if (res.role === 'admin') LS.set('prices', prices); else LS.del('prices');
+    indexCatalog(); buildTabs(); render();
+  } catch (err){ if (err.code === 'net'){ online = false; setSync(); } else authFailed(err); }
+}
+window.addEventListener('online', () => { online = true; lastErr = ''; flush(); loadWeek(true); });
+window.addEventListener('offline', () => { online = false; setSync(); });
+setInterval(() => { if (!session) return; if (outbox.length) flush(); else if (document.visibilityState === 'visible') loadWeek(true); }, 30000);
+setInterval(() => { if (session && document.visibilityState === 'visible') loadCatalog(); }, 10 * 60000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && session){ flush(); loadWeek(true); } });
+
+// ---------- rendering ----------
+function renderHeader(){
+  const d = parse(state.date);
+  $('#dayName').textContent = DAYS[d.getDay()] + (state.date === iso(new Date()) ? ' • اليوم' : '');
+  $('#dayDate').textContent = dmy(state.date); $('#date').value = state.date;
+  $('#who').textContent = me();
+  const m = dayMap(state.date); const done = catalog.filter(c => m[c.id]).length;
+  $('#sDone').textContent = done; $('#sAll').textContent = catalog.length;
+  $('#prog').style.width = catalog.length ? (done / catalog.length * 100) + '%' : '0';
+  setSync();
+}
+function renderList(){
+  const m = dayMap(state.date); const q = norm(state.q);
+  let items = catalog.filter(it => !q || norm(it.name).includes(q) || (it.sku || '').includes(q));
+  if (state.filter === 'done') items = items.filter(it => m[it.id]);
+  if (state.filter === 'todo') items = items.filter(it => !m[it.id]);
+  const em = $('#listEmpty');
+  em.hidden = items.length > 0;
+  em.textContent = !catalog.length ? 'قائمة الأصناف بعدها ما وصلت. خلي النت شغال لحظة.'
+    : state.filter === 'todo' && !q ? 'كل الأصناف انسجلت لهذا اليوم.' : 'ما لگيت صنف بهذا الاسم.';
+  const frag = document.createDocumentFragment();
+  for (const it of items){
+    const e = m[it.id]; const li = document.createElement('li');
+    const b = document.createElement('button'); b.className = 'item' + (e ? (e._pending ? ' pend' : ' done') : ''); b.dataset.id = it.id;
+    b.innerHTML = `<span class="mark">${e ? (e._pending ? '⏳' : '✓') : esc(unitLabel(it)).slice(0,4)}</span>
+      <span class="nm"><b>${esc(it.name)}</b><span>${esc(it.sku || 'بدون SKU')} • ${esc(unitLabel(it))}${it.both ? ' • وزن + عدد' : ''}</span></span>
+      <span class="qv">${e ? `<span class="q num">${fq(inQty(e))} ${esc(unitLabel(it))}</span>${e.pieces ? `<span class="s num">${fq(e.pieces)} حبة</span>` : ''}${e.weight ? `<span class="s num">${fq(e.weight)} كغم</span>` : ''}${retQty(e) ? `<span class="r num">راجع ${fq(retQty(e))}</span>` : ''}${e._pending ? '<span class="p">بالجهاز</span>' : ''}` : ''}</span>`;
+    li.append(b); frag.append(li);
+  }
+  $('#list').replaceChildren(frag);
+}
+function kpis(t, n){
+  if (!isOwner()) return `<div class="kpis"><div class="kpi"><span>أصناف مستلمة</span><b class="num">${n}</b></div><div class="kpi"><span>أصناف بيها راجع</span><b class="num">${t.rows.filter(r => retQty(r.e)).length}</b></div></div>`;
+  return `<div class="kpis"><div class="kpi"><span>قيمة الوارد</span><b class="num">${fmt(t.ain)}</b></div>
+    <div class="kpi"><span>قيمة الراجع (تالف + عزل)</span><b class="num" style="color:var(--ret)">${fmt(t.art)}</b></div>
+    <div class="kpi"><span>وزن الصناديق المسجل</span><b class="num">${fq(t.rows.reduce((a, r) => a + (+r.e.boxKg || 0), 0))} كغم</b></div>
+    <div class="kpi"><span>قيمته (خسارة محتملة)</span><b class="num" style="color:var(--ret)">${fmt(t.rows.reduce((a, r) => a + (+r.e.boxKg || 0) * unitPrice(r.id), 0))}</b></div>
+    <div class="kpi wide"><span>المستحق للمورد (شامل الضريبة، تقريبي لأقرب 250)</span><b class="num">${fmt(t.due)} د.ع</b></div></div>`;
+}
+const byName = e => !e.by ? '' : e.by === me() ? 'إنت' : e.by;
+function renderDay(){
+  const t = dayTotals(state.date); const v = $('#v-day');
+  let h = kpis(t, t.rows.length);
+  if (isOwner() && t.noPrice) h += `<p class="note warn" style="margin-top:10px">${t.noPrice} صنف مسجل بدون سعر، فقيمته ما داخلة. صلّح السعر بورقة «الأصناف» بالشيت.</p>`;
+  h += `<div class="h3row"><h3>المستلم (${t.rows.length})</h3><div class="btnrow">
+    <button class="btn ghost sm" id="xDay">${ICON.dl}Excel</button><button class="btn ghost sm" id="pDay">${ICON.print}طباعة</button></div></div>`;
+  if (!t.rows.length) h += `<div class="empty">ما انسجل شي لهذا اليوم بعد.<br>من «الإدخال» اختار الصنف واكتب الكمية.</div>`;
+  else {
+    h += `<div class="tblwrap"><table><thead><tr><th>الصنف</th><th class="n">الوارد</th><th class="n">حبات / وزن</th><th class="n">وزن الصناديق</th><th class="n">التالف</th><th class="n">العزل</th>${isOwner() ? '<th class="n">قيمة الوارد</th><th class="n">قيمة الراجع</th>' : ''}<th class="n">سجّلها</th></tr></thead><tbody>`;
+    for (const r of t.rows) h += `<tr><td>${esc(r.it.name)}${r.e._pending ? ' <span class="who">⏳ بالجهاز</span>' : ''}</td><td class="n num">${fq(inQty(r.e))} <span class="who">${esc(unitLabel(r.it))}</span></td><td class="n num">${extraTxt(r.e)}</td><td class="n num">${r.e.boxKg ? fq(r.e.boxKg) + ' كغم' : ''}</td><td class="n num">${fq(r.e.waste)}</td><td class="n num">${fq(r.e.graded)}</td>${isOwner() ? `<td class="n num">${fmt(r.vin)}</td><td class="n num">${fmt(r.vrt)}</td>` : ''}<td class="n who">${esc(r.e._pending ? 'إنت' : byName(r.e))}</td></tr>`;
+    if (isOwner()) h += `<tr class="tot"><td>المجموع</td><td></td><td></td><td></td><td></td><td></td><td class="n num">${fmt(t.ain)}</td><td class="n num">${fmt(t.art)}</td><td></td></tr>`;
+    h += `</tbody></table></div>`;
+  }
+  v.innerHTML = h;
+  $('#xDay').onclick = () => exportXlsx([state.date]);
+  $('#pDay').onclick = () => openPrint();
+}
+const weekDates = () => { const s = weekStart(state.date); return [0,1,2,3,4,5,6].map(k => addDays(s, k)); };
+function renderWeek(){
+  const ds = weekDates(); const v = $('#v-week'); let A = {ain: 0, art: 0, n: 0};
+  const rows = ds.map((d, i) => { const t = dayTotals(d); A.ain += t.ain; A.art += t.art; A.n += t.rows.length; return {d, i, t}; });
+  let h = `<div class="h3row"><h3>أسبوع ${dmy(ds[0])} إلى ${dmy(ds[6])}</h3><button class="btn ghost sm" id="xWeek">${ICON.dl}Excel للأسبوع</button></div>`;
+  h += kpis({ain: A.ain, art: A.art, due: A.ain - A.art, rows: rows.flatMap(r => r.t.rows)}, A.n);
+  h += `<div class="tblwrap" style="margin-top:12px"><table><thead><tr><th>اليوم</th><th class="n">أصناف</th><th class="n">الوارد</th><th class="n">الراجع</th><th class="n">المستحق</th><th class="n">% راجع</th></tr></thead><tbody>`;
+  for (const {d, i, t} of rows) h += `<tr${t.rows.length ? '' : ' style="color:var(--muted)"'}><td><button class="btn ghost sm" data-go="${d}">${DAYS[i]} ${dmy(d).slice(0,-5)}</button></td><td class="n num">${t.rows.length || '—'}</td><td class="n num">${fmt(t.ain)}</td><td class="n num">${fmt(t.art)}</td><td class="n num">${fmt(t.due)}</td><td class="n num">${t.ain ? Math.round(t.art / t.ain * 100) + '%' : ''}</td></tr>`;
+  h += `<tr class="tot"><td>المجموع</td><td class="n num">${A.n}</td><td class="n num">${fmt(A.ain)}</td><td class="n num">${fmt(A.art)}</td><td class="n num">${fmt(A.ain - A.art)}</td><td class="n num">${A.ain ? Math.round(A.art / A.ain * 100) + '%' : ''}</td></tr>`;
+  h += `</tbody></table></div><p class="muted">الأسبوع من الأحد للسبت مثل التراكر. القيم شاملة الضريبة، وكل سطر مقرّب لأقرب 250.</p>`;
+  v.innerHTML = h;
+  v.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { setDate(b.dataset.go); setView('day'); });
+  $('#xWeek').onclick = () => exportXlsx(ds);
+}
+function renderItems(){
+  const v = $('#v-items'); const priced = catalog.filter(c => unitPrice(c.id)).length;
+  let h = `<p class="note info" style="margin-top:14px">الأصناف والأسعار والصناديق والموظفين تتعدل من الـ Google Sheet مالتك. بعد التعديل دوس «تحديث» هنا. الأسعار تشوفها إنت بس.</p>
+    <div class="btnrow" style="margin-top:10px"><button class="btn ghost sm" id="reload">تحديث القائمة</button><button class="btn ghost sm" id="xItems">${ICON.dl}Excel القائمة</button></div>`;
+  h += `<div class="h3row"><h3>أنواع الصناديق</h3></div><div class="tblwrap"><table><thead><tr><th>النوع</th><th class="n">وزن الواحد (كغم)</th></tr></thead><tbody>${boxTypes.length ? boxTypes.map(t => `<tr><td>${esc(t.name)}</td><td class="n num">${fq(t.kg)}</td></tr>`).join('') : '<tr><td colspan="2" class="muted">ما بيه أنواع. الموظف يكتب وزن الصندوق بيده. تگدر تضيف أنواع بورقة «الصناديق».</td></tr>'}</tbody></table></div>`;
+  h += `<div class="h3row"><h3>الأصناف (${catalog.length}، ${priced} مسعّر)</h3></div>
+    <div class="tblwrap"><table><thead><tr><th>الصنف</th><th>SKU</th><th>الوحدة</th><th class="n">السعر</th><th class="n">الضريبة</th><th class="n">وزن + عدد</th></tr></thead><tbody>`;
+  for (const c of catalog){ const p = prices[c.id] || {}; h += `<tr><td>${esc(c.name)}</td><td class="num">${esc(c.sku)}</td><td>${esc(unitLabel(c))}</td><td class="n num">${fmt(p.price)}</td><td class="n num">${+p.tax ? Math.round(p.tax * 100) + '%' : '—'}</td><td class="n">${c.both ? '✓' : ''}</td></tr>`; }
+  h += `</tbody></table></div>`;
+  v.innerHTML = h;
+  $('#reload').onclick = async () => { await loadCatalog(); toast('انحدثت القائمة'); };
+  $('#xItems').onclick = exportItems;
+}
+function render(){
+  if (!session) return;
+  renderHeader();
+  ({entry: renderList, day: renderDay, week: renderWeek, items: renderItems})[state.view]();
+}
+function buildTabs(){
+  const tabs = [['entry','الإدخال'],['day','اليوم']].concat(isOwner() ? [['week','الأسبوع'],['items','الأصناف']] : []);
+  if (!tabs.some(t => t[0] === state.view)) state.view = 'entry';
+  $('#tabs').innerHTML = tabs.map(([k, l]) => `<button role="tab" data-v="${k}" aria-selected="${k === state.view}">${ICON[k]}<span>${l}</span></button>`).join('');
+  $('#tabs').querySelectorAll('button').forEach(b => b.onclick = () => setView(b.dataset.v));
+  for (const k of ['entry','day','week','items']) $('#v-' + k).hidden = k !== state.view;
+}
+function setView(v){
+  state.view = v;
+  document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.v === v));
+  for (const k of ['entry','day','week','items']) $('#v-' + k).hidden = k !== v;
+  render(); window.scrollTo(0, 0);
+}
+function setDate(d){ const wk = weekStart(state.date) !== weekStart(d); state.date = d; render(); if (wk) loadWeek(); }
+
+// ---------- entry sheet ----------
+function openSheet(html){ $('#sheetIn').innerHTML = '<div class="grip"></div>' + html; if ($('#sheet').hidden) try { history.pushState({sheet: 1}, ''); } catch {} $('#sheet').hidden = false; $('#sheetBg').hidden = false; }
+function hideSheet(){ $('#sheet').hidden = true; $('#sheetBg').hidden = true; }
+function closeSheet(){ if ($('#sheet').hidden) return; if (history.state && history.state.sheet) history.back(); else hideSheet(); }
+window.addEventListener('popstate', hideSheet);
+$('#sheetBg').onclick = closeSheet;
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
+const readNum = el => { const v = (el.value || '').replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[٫,]/g, '.').trim(); return v === '' ? null : +v; };
+
+const isKg = it => /^(kg|كغم|كيلو)$/i.test(String(it.unit || '').trim());
+const unitLabel = it => isKg(it) ? 'كغم' : ({EA: 'قطعة', PACK: 'باكيت', BUNCH: 'حزمة', BAG: 'كيس', BOX: 'صندوق'}[String(it.unit || '').toUpperCase()] || it.unit || '');
+function boxRowHTML(b){
+  const opts = boxTypes.map(t => `<option value="${esc(t.id)}"${b.t === t.id ? ' selected' : ''}>${esc(t.name)} • ${fq(t.kg)} كغم</option>`).join('');
+  return `<div class="brow"><div class="fld"><label>نوع الصندوق</label><select class="b-t">${opts}</select></div><div class="fld"><label>العدد</label><input class="b-n" inputmode="numeric" value="${fq(b.n)}"></div><button type="button" class="xbtn b-x" aria-label="حذف">×</button></div>`;
+}
+function openItem(id){
+  const it = byId[id]; if (!it) return;
+  const e = dayMap(state.date)[id] || {};
+  const kg = isKg(it), U = unitLabel(it);
+  const kgField = kg ? 'qty' : (it.both ? 'weight' : null);
+  const hasBox = !!(e.boxes && e.boxes.length) || +e.boxKg > 0;
+  const fld = (k, label, cls = '', hint = 'next') => `<div class="fld ${cls}"><label for="f-${k}">${label}</label><input id="f-${k}" inputmode="decimal" enterkeyhint="${hint}" value="${fq(e[k])}"></div>`;
+  const main = kg ? fld('qty', 'الوزن (كغم)') : fld('qty', `العدد (${esc(U)})`);
+  const extra = it.both ? (kg ? fld('pieces', 'عدد الحبات') : fld('weight', 'الوزن (كغم)')) : '';
+  const single = boxTypes.length === 1;
+  const b0 = e.boxes && e.boxes[0] ? e.boxes[0] : {};
+  const boxUI = kgField ? `<div class="boxes"><label class="sw"><span>بيه صندوق؟</span><input type="checkbox" id="f-hasbox"${hasBox ? ' checked' : ''}></label>
+    <div id="boxBody"${hasBox ? '' : ' hidden'}>
+      ${boxTypes.length === 0 ? `<div class="grid2"><div class="fld"><label for="f-bkg">وزن الصندوق الواحد (كغم)</label><input id="f-bkg" inputmode="decimal" value="${fq(b0.kg)}"></div><div class="fld"><label for="f-bn">عدد الصناديق</label><input id="f-bn" inputmode="numeric" value="${fq(b0.n)}"></div></div>`
+      : single ? `<div class="grid2"><div class="fld"><label>الصندوق</label><div class="tag" style="height:58px;display:flex;align-items:center;justify-content:center;font-size:.95rem">${esc(boxTypes[0].name)} • ${fq(boxTypes[0].kg)} كغم</div></div><div class="fld"><label for="f-bn">عدد الصناديق</label><input id="f-bn" inputmode="numeric" value="${fq(b0.n)}"></div></div>`
+      : `<div id="brows">${(e.boxes && e.boxes.length ? e.boxes : [{t: boxTypes[0].id, n: ''}]).map(boxRowHTML).join('')}</div><button type="button" class="btn ghost sm" id="addBox">+ نوع صندوق ثاني</button>`}
+      <div class="netline" style="margin-top:10px"><span>وزن الصناديق <b class="num" id="bk">0</b> كغم</span><span>يتسجل بس، ما ينطرح من الوزن</span></div>
+    </div></div>` : '';
+  openSheet(`<h2>${esc(it.name)}</h2>
+    <div class="sub"><span class="tag num">${esc(it.sku || 'بدون SKU')}</span><span class="tag">الوحدة: ${esc(U)}</span><span class="tag">${DAYS[parse(state.date).getDay()]} ${dmy(state.date)}</span>${e.by && !e._pending ? `<span class="tag">سجّلها: ${esc(byName(e))}</span>` : ''}</div>
+    <form id="ef" autocomplete="off"><div class="grid2">${main}${extra}
+      ${fld('waste', `التالف (${esc(U)})`, 'ret')}${fld('graded', `العزل (${esc(U)})`, 'ret', 'done')}</div>${boxUI}<button type="submit" hidden></button></form>
+    ${isOwner() ? '<div class="money" id="money"></div>' : ''}
+    <div class="actions"><button class="btn primary" id="save">حفظ</button>${Object.keys(e).length ? '<button class="btn danger" id="del">مسح</button>' : ''}<button class="btn ghost" id="cancel">إلغاء</button></div>`);
+  const F = k => $('#f-' + k);
+  const boxes = () => {
+    if (!kgField || !F('hasbox').checked) return [];
+    if (boxTypes.length === 0){ const n = readNum(F('bn')), w = readNum(F('bkg')); return n > 0 && w > 0 ? [{t: 'manual', name: 'صندوق', kg: w, n}] : []; }
+    if (single){ const n = readNum(F('bn')); return n > 0 ? [{t: boxTypes[0].id, name: boxTypes[0].name, kg: +boxTypes[0].kg, n}] : []; }
+    return [...document.querySelectorAll('#brows .brow')].map(r => { const t = boxTypes.find(x => x.id === r.querySelector('.b-t').value) || boxTypes[0]; return {t: t.id, name: t.name, kg: +t.kg, n: readNum(r.querySelector('.b-n'))}; }).filter(b => b.n > 0);
+  };
+  const collect = () => {
+    const bx = boxes(); const bkg = bx.reduce((a, b) => a + b.kg * b.n, 0);
+    return {qty: readNum(F('qty')), pieces: it.both && kg ? readNum(F('pieces')) : null, weight: it.both && !kg ? readNum(F('weight')) : null,
+      waste: readNum(F('waste')), graded: readNum(F('graded')), boxes: bx.length ? bx : null, boxKg: bkg ? Math.round(bkg * 1000) / 1000 : null};
+  };
+  const upd = () => {
+    if (kgField){ $('#boxBody').hidden = !F('hasbox').checked; $('#bk').textContent = fq(collect().boxKg || 0); }
+    if (isOwner()){ const x = collect(); const u = unitPrice(id);
+      $('#money').innerHTML = `<div>قيمة الوارد<b class="num">${fmt(r250(inQty(x) * u))}</b></div><div>قيمة الراجع<b class="num" style="color:var(--ret)">${fmt(r250(retQty(x) * u))}</b></div>`; }
+  };
+  const wireRows = () => document.querySelectorAll('#brows .b-x').forEach(b => b.onclick = () => { if (document.querySelectorAll('#brows .brow').length > 1) b.closest('.brow').remove(); else b.closest('.brow').querySelector('.b-n').value = ''; upd(); });
+  $('#ef').addEventListener('input', upd); $('#ef').addEventListener('change', upd);
+  if ($('#addBox')) $('#addBox').onclick = () => { $('#brows').insertAdjacentHTML('beforeend', boxRowHTML({t: boxTypes[0].id, n: ''})); wireRows(); };
+  wireRows(); upd();
+  $('#cancel').onclick = closeSheet;
+  setTimeout(() => F('qty').focus(), 80);
+  const save = () => {
+    const x = collect();
+    const nums = ['qty','pieces','weight','waste','graded'].map(k => x[k]);
+    if (nums.some(v => v != null && (isNaN(v) || v < 0))){ toast('اكتب رقم صحيح (صفر أو أكثر)'); return; }
+    if (F('hasbox') && F('hasbox').checked && !x.boxes){ toast('اكتب عدد الصناديق'); return; }
+    const empty = nums.every(v => v == null || v === 0);
+    const body = Object.assign({date: state.date, itemId: id, sku: it.sku || '', name: it.name, unit: it.unit || '', by: me(), at: new Date().toISOString()}, x);
+    queue(state.date, id, empty ? null : body);
+    closeSheet(); toast(!online ? 'انحفظ بالجهاز، ينرسل أول ما يرجع النت' : 'انحفظ');
+  };
+  $('#ef').onsubmit = ev => { ev.preventDefault(); save(); };
+  $('#save').onclick = save;
+  $('#del') && ($('#del').onclick = () => { if (!confirm('تمسح تسجيل «' + it.name + '» لهذا اليوم؟')) return; queue(state.date, id, null); closeSheet(); toast('انمسح'); });
+}
+
+// ---------- files: Excel + printable page ----------
+async function saveFile(name, blob){
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (ios && navigator.canShare){
+    try { const f = new File([blob], name, {type: blob.type}); if (navigator.canShare({files: [f]})){ await navigator.share({files: [f]}); return; } }
+    catch (e){ if (e && e.name === 'AbortError') return; }
+  }
+  const url = URL.createObjectURL(blob); const a = document.createElement('a');
+  a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+function xlsxBlob(wb){ wb.Workbook = {Views: [{RTL: true}]}; return new Blob([XLSX.write(wb, {type: 'array', bookType: 'xlsx'})], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}); }
+function exportXlsx(dates){
+  if (typeof XLSX === 'undefined'){ toast('ملف Excel ما جاهز. افتح التطبيق والنت شغال مرة وحدة'); return; }
+  const own = isOwner();
+  const wb = XLSX.utils.book_new(); const sum = [own ? ['اليوم','التاريخ','أصناف','قيمة الوارد','قيمة الراجع','المستحق'] : ['اليوم','التاريخ','أصناف']];
+  for (const d of dates){
+    const t = dayTotals(d); const i = parse(d).getDay();
+    sum.push(own ? [DAYS[i], dmy(d), t.rows.length, t.ain, t.art, t.due] : [DAYS[i], dmy(d), t.rows.length]);
+    if (!t.rows.length) continue;
+    const head = ['#','SKU','الصنف','الوحدة','الكمية','عدد الحبات','الوزن كغم','الصناديق','وزن الصناديق','التالف','العزل','سجّلها'].concat(own ? ['السعر','الضريبة','قيمة الوارد تقريبي','قيمة الراجع تقريبي'] : []);
+    const aoa = [head];
+    t.rows.forEach((r, k) => { const p = prices[r.id] || {}; aoa.push([k+1, r.it.sku || '', r.it.name, unitLabel(r.it), r.e.qty ?? '', r.e.pieces ?? '', r.e.weight ?? '', boxTxt(r.e), r.e.boxKg ?? '', r.e.waste ?? '', r.e.graded ?? '', r.e.by || ''].concat(own ? [+p.price || 0, +p.tax || 0, r.vin, r.vrt] : [])); });
+    if (own) aoa.push(['','','المجموع','','','','','','','','','','','', t.ain, t.art]);
+    const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [4,9,40,7,11,9,9,12,10,8,8,12,9,7,13,13].map(w => ({wch: w}));
+    XLSX.utils.book_append_sheet(wb, ws, 'مخزن ' + DAYS[i]);
+  }
+  if (own){ const tot = sum.slice(1).reduce((a, r) => [a[0]+r[2], a[1]+r[3], a[2]+r[4], a[3]+r[5]], [0,0,0,0]); sum.push(['المجموع','',...tot]); }
+  const ws0 = XLSX.utils.aoa_to_sheet(sum); ws0['!cols'] = [10,12,8,14,14,14].map(w => ({wch: w}));
+  XLSX.utils.book_append_sheet(wb, ws0, 'الملخص'); wb.SheetNames.unshift(wb.SheetNames.pop());
+  saveFile(dates.length > 1 ? `استلام_${dates[0]}_إلى_${dates[6]}.xlsx` : `استلام_${dates[0]}.xlsx`, xlsxBlob(wb));
+}
+function exportItems(){
+  if (typeof XLSX === 'undefined') return;
+  const aoa = [['SKU','اسم الصنف','الوحدة','السعر','الضريبة']].concat(catalog.map(c => [c.sku, c.name, c.unit, +(prices[c.id] || {}).price || 0, +(prices[c.id] || {}).tax || 0]));
+  const wb = XLSX.utils.book_new(); const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [10,42,8,10,8].map(w => ({wch: w}));
+  XLSX.utils.book_append_sheet(wb, ws, 'الأصناف'); saveFile('قائمة_الأصناف.xlsx', xlsxBlob(wb));
+}
+function openPrint(){
+  openSheet(`<h2>طباعة</h2><div class="sub"><span class="tag">${DAYS[parse(state.date).getDay()]} ${dmy(state.date)}</span><span class="tag">A4 بالعرض</span></div>
+    <p class="muted" style="margin-top:0">ينزل ملف تفتحه بالمتصفح وتطبعه (Ctrl+P).</p>
+    <div class="actions" style="flex-direction:column"><button class="btn primary" id="prBlank">${ICON.print}ورقة استلام فارغة للكتابة باليد</button><button class="btn ghost" id="prDay">${ICON.print}المستلم لهذا اليوم</button></div>`);
+  $('#prBlank').onclick = () => { closeSheet(); printDoc(true); };
+  $('#prDay').onclick = () => { closeSheet(); printDoc(false); };
+}
+function printDoc(blank){
+  const d = parse(state.date); const title = `قائمة استلام المواد • ${DAYS[d.getDay()]} ${dmy(state.date)}`;
+  const t = dayTotals(state.date); const rows = blank ? catalog.map(it => ({it, e: {}})) : t.rows;
+  const money = isOwner() && !blank;
+  const body = rows.map((r, k) => `<tr><td>${k+1}</td><td>${esc(r.it.sku || '')}</td><td class="nm">${esc(r.it.name)}</td><td>${esc(unitLabel(r.it))}</td><td class="w">${fq(r.e.qty)}</td><td class="w">${blank ? (r.it.both ? (isKg(r.it) ? 'حبات:' : 'كغم:') : '') : extraTxt(r.e)}</td><td class="w">${blank ? '' : (r.e.boxKg ? fq(r.e.boxKg) + ' كغم' : '')}</td><td class="w">${fq(r.e.waste)}</td><td class="w">${fq(r.e.graded)}</td>${money ? `<td>${fmt(r.vin)}</td><td>${fmt(r.vrt)}</td>` : ''}</tr>`).join('');
+  const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(title)}</title><style>
+@page{size:A4 landscape;margin:10mm 8mm 14mm}
+body{font-family:"IBM Plex Sans Arabic",Tahoma,Arial,sans-serif;color:#111;margin:0}
+h1{font-size:18pt;margin:0 0 2mm}.meta{font-size:9pt;color:#555;margin-bottom:3mm}
+table{width:100%;border-collapse:collapse;font-size:11pt}
+thead{display:table-header-group}th{background:#5C1529;color:#fff;font-weight:700;padding:2.5mm 2mm;border:0.3mm solid #5C1529}
+td{border:0.3mm solid #999;padding:0 2mm;height:8.5mm;text-align:center}td.nm{text-align:right;font-size:11.5pt}
+td.w{width:24mm;font-weight:700;font-size:12.5pt}tr:nth-child(even) td{background:#f6f0ee}tr{page-break-inside:avoid}
+.sig{display:flex;gap:20mm;margin-top:6mm;font-size:11pt}.sig span{flex:1;border-top:0.3mm solid #333;padding-top:2mm}
+.tot td{font-weight:700;background:#efe3e0}
+</style></head><body><h1>${esc(title)}</h1><div class="meta">${blank ? 'الكمية حسب الوحدة المكتوبة • «حبات / وزن» للأصناف اللي تنحسب بالوزن والعدد • الصناديق: العدد ووزن الواحد' : rows.length + ' صنف مستلم'}</div>
+<table><thead><tr><th>#</th><th>SKU</th><th>الصنف</th><th>الوحدة</th><th>الكمية / الوزن</th><th>حبات / وزن</th><th>الصناديق</th><th>التالف</th><th>العزل</th>${money ? '<th>قيمة الوارد</th><th>قيمة الراجع</th>' : ''}</tr></thead><tbody>${body}
+${money ? `<tr class="tot"><td colspan="9">المجموع • المستحق ${fmt(t.due)} د.ع</td><td>${fmt(t.ain)}</td><td>${fmt(t.art)}</td></tr>` : ''}</tbody></table>
+<div class="sig"><span>اسم وتوقيع مشرف المخزن</span><span>توقيع المورد</span><span>وقت الاستلام</span></div></body></html>`;
+  saveFile(`${blank ? 'ورقة_استلام_فارغة' : 'استلام'}_${state.date}.html`, new Blob([html], {type: 'text/html'}));
+}
+
+// ---------- login ----------
+function showLogin(msg){
+  $('#login').hidden = false; $('#app').hidden = true;
+  $('#lgErr').textContent = msg || ''; $('#lgErr').hidden = !msg;
+  $('#lgPin').value = ''; setTimeout(() => $('#lgPin').focus(), 60);
+  if (!API) { $('#lgErr').textContent = 'التطبيق بعده ما مربوط بالشيت. لازم المسؤول يحط رابط الخادم بملف config.js'; $('#lgErr').hidden = false; }
+}
+function showApp(){ $('#login').hidden = true; $('#app').hidden = false; buildTabs(); render(); }
+$('#lgForm').onsubmit = async ev => {
+  ev.preventDefault();
+  const pin = ($('#lgPin').value || '').replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).trim();
+  if (!/^\d{4,8}$/.test(pin)){ $('#lgErr').textContent = 'الرقم السري من 4 لـ 8 أرقام'; $('#lgErr').hidden = false; return; }
+  const btn = $('#lgBtn'); btn.disabled = true; btn.textContent = 'جاري الدخول…';
+  try {
+    const r = await call('login', {}, pin);
+    session = {pin, name: r.name, role: r.role}; LS.set('session', session);
+    online = true; showApp(); await loadCatalog(); loadWeek(); flush();
+    toast('هلا ' + r.name);
+  } catch (err){
+    $('#lgErr').textContent = err.code === 'noapi' ? 'التطبيق ما مربوط بالشيت بعد' : (ERR[err.code] || 'ما گدرت أدخل، جرب مرة ثانية'); $('#lgErr').hidden = false;
+    $('#lgPin').select();
+  }
+  btn.disabled = false; btn.textContent = 'دخول';
+};
+function logout(forced, msg){
+  if (!forced && outbox.length && !confirm(`بيه ${outbox.length} تسجيل بعده ما انرسل. إذا تطلع ينمسح من هذا الجهاز. تطلع؟`)) return;
+  session = null; LS.del('session'); LS.del('prices'); prices = {};
+  if (forced || outbox.length){ outbox = []; LS.set('outbox', outbox); }
+  closeSheet(); showLogin(msg);
+}
+$('#logout').onclick = () => logout(false);
+
+// ---------- install as an app ----------
+let deferred = null;
+const standalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; $('#install').hidden = standalone(); });
+window.addEventListener('appinstalled', () => { $('#install').hidden = true; toast('انضاف للشاشة'); });
+if (/iphone|ipad|ipod|android/i.test(navigator.userAgent) && !standalone()) $('#install').hidden = false;
+$('#install').onclick = async () => {
+  if (deferred){ deferred.prompt(); await deferred.userChoice; deferred = null; $('#install').hidden = true; return; }
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  openSheet(ios ? `<h2>تنزيل التطبيق على الآيفون</h2><ol style="line-height:2;padding-inline-start:20px;margin:10px 0 0">${/CriOS|FxiOS|EdgiOS/.test(navigator.userAgent) ? '<li>انسخ الرابط وافتحه بـ <b>Safari</b>.</li>' : ''}<li>دوس زر المشاركة <b>⬆︎</b> (تحت بنص الشاشة).</li><li>نزّل واختار <b>إضافة إلى الشاشة الرئيسية</b>، ودوس <b>إضافة</b>.</li><li>افتح التطبيق من الأيقونة واكتب رقمك السري مرة ثانية.</li></ol><div class="actions"><button class="btn primary" id="okI">تمام</button></div>`
+    : `<h2>تنزيل التطبيق</h2><ol style="line-height:2;padding-inline-start:20px;margin:10px 0 0"><li>افتح الرابط بـ <b>Chrome</b>.</li><li>دوس <b>⋮</b> فوق.</li><li>اختار <b>تثبيت التطبيق</b> أو <b>إضافة إلى الشاشة الرئيسية</b>.</li></ol><div class="actions"><button class="btn primary" id="okI">تمام</button></div>`);
+  $('#okI').onclick = closeSheet;
+};
+try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+
+// ---------- events ----------
+$('#list').addEventListener('click', e => { const b = e.target.closest('.item'); if (b) openItem(b.dataset.id); });
+$('#q').addEventListener('input', e => { state.q = e.target.value; renderList(); });
+document.querySelectorAll('.seg button').forEach(c => c.onclick = () => { state.filter = c.dataset.f; document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', x === c)); renderList(); });
+$('#prev').onclick = () => setDate(addDays(state.date, -1));
+$('#next').onclick = () => setDate(addDays(state.date, 1));
+$('#date').onchange = e => { if (e.target.value) setDate(e.target.value); };
+
+if (session){ showApp(); loadCatalog(); loadWeek(true); flush(); }
+else showLogin();
+})();
+
+</script>
+</body>
+</html>
