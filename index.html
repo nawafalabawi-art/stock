@@ -615,12 +615,14 @@ function openItem(id, add){
 
 
 // ---------- المدير: مطابقة قائمة أبو إياد ويا الإدخال ----------
-let aiDocs = {}, aiBusy = {}, aiDirty = false, mAll = LS.get('mAll', true), mQ = '';          // aiDocs[date] = {qty: {itemId: number}}
+let aiDocs = {}, aiBusy = {}, aiPend = LS.get('aiPend', {}), aiDirty = false, mAll = LS.get('mAll', true), mQ = '';          // aiDocs[date] = {qty: {itemId: number}}
 async function loadAI(wk){
   try {
     const res = await call('aiWeek', {week: wk});
-    for (let k = 0; k < 7; k++){ const d = addDays(wk, k); if (!aiBusy[d]) aiDocs[d] = {qty: {}}; }
-    for (const x of res.rows || []) if (!aiBusy[x.date]) aiDocs[x.date].qty[x.itemId] = x.qty;
+    for (let k = 0; k < 7; k++) aiDocs[addDays(wk, k)] = {qty: {}};
+    for (const x of res.rows || []) if (aiDocs[x.date]) aiDocs[x.date].qty[x.itemId] = x.qty;
+    // الأرقام اللي بعدها ما انرسلت تبقى ظاهرة وتنرسل مرة ثانية
+    for (let k = 0; k < 7; k++){ const d = addDays(wk, k), p = aiPend[d]; if (!p) continue; for (const id in p){ if (p[id] == null) delete aiDocs[d].qty[id]; else aiDocs[d].qty[id] = p[id]; } if (Object.keys(p).length && !aiBusy[d]) saveAI(d); }
   } catch (err){ if (err.code === 'bad' && state.view === 'match') toast('الخادم ما محدّث للمطابقة. لازم تضيف Match.gs وتسوي New version'); }
 }
 function softRender(){
@@ -646,14 +648,19 @@ async function saveAI(date){
   if (aiBusy[date]){ aiBusy[date] = 'again'; return; }
   aiBusy[date] = 'busy';
   try {
-    const q = aiOf(date).qty, m = dayMap(date), items = {};
-    for (const id of Object.keys(q)){ const it = byId[id] || m[id] || {}; items[id] = {qty: q[id], sku: it.sku || '', name: it.name || ''}; }
-    await call('aiSave', {date, items});
+    // يدز بس الأصناف اللي تغيرت، فما يمسح أرقام غيره
+    const p = Object.assign({}, aiPend[date] || {}), m = dayMap(date), changes = {};
+    for (const id of Object.keys(p)){ const it = byId[id] || m[id] || {}; changes[id] = p[id] == null ? null : {qty: p[id], sku: it.sku || '', name: it.name || ''}; }
+    if (Object.keys(changes).length){
+      await call('aiSet', {date, changes});
+      const cur = aiPend[date] || {}; for (const id in p) if (cur[id] === p[id]) delete cur[id];
+      if (!Object.keys(cur).length) delete aiPend[date]; LS.set('aiPend', aiPend);
+    }
   } catch (err){ if (!authFailed(err)) toast(err.code === 'net' ? 'المطابقة تحتاج إنترنت. ما انحفظت' : err.code === 'bad' ? 'الخادم ما محدّث للمطابقة' : 'ما انحفظت المطابقة'); }
   const again = aiBusy[date] === 'again'; delete aiBusy[date];
   if (again) saveAI(date);
 }
-function setAI(date, id, v){ const a = aiOf(date).qty; if (v == null) delete a[id]; else a[id] = v; saveAI(date); }
+function setAI(date, id, v){ const a = aiOf(date).qty; if (v == null) delete a[id]; else a[id] = v; (aiPend[date] = aiPend[date] || {})[id] = v == null ? null : v; LS.set('aiPend', aiPend); saveAI(date); }
 function renderMatch(){
   const v = $('#v-match'), d = state.date, t = matchRows(d), own = isOwner();
   const shown = mAll ? t.rows.concat(catalog.filter(c => !t.rows.some(r => r.id === c.id)).map(c => ({id: c.id, it: c, e: null, ours: 0, ai: null, diff: null, u: unitPrice(c.id), val: 0})))
@@ -704,7 +711,7 @@ function renderMatch(){
   const filt = () => { const q = norm(mQ); v.querySelectorAll('tr[data-nm]').forEach(tr => tr.hidden = !!q && !tr.dataset.nm.includes(q)); };
   $('#mQ').addEventListener('input', e => { mQ = e.target.value; filt(); }); filt();
   $('#mAllB').onclick = () => { mAll = !mAll; LS.set('mAll', mAll); render(); };
-  $('#mFill').onclick = () => { let n = 0; for (const r of t.rows) if (r.ai == null && r.e){ aiOf(d).qty[r.id] = r.ours; n++; } if (!n){ toast('كل الأصناف مكتوبة'); return; } saveAI(d); render(); toast(`${n} صنف انكتب مطابق`); };
+  $('#mFill').onclick = () => { let n = 0; for (const r of t.rows) if (r.ai == null && r.e){ aiOf(d).qty[r.id] = r.ours; (aiPend[d] = aiPend[d] || {})[r.id] = r.ours; n++; } if (!n){ toast('كل الأصناف مكتوبة'); return; } LS.set('aiPend', aiPend); saveAI(d); render(); toast(`${n} صنف انكتب مطابق`); };
   if ($('#mAdd')) $('#mAdd').onclick = () => {
     const nm = $('#mAddN').value.trim(), q = readNum($('#mAddQ')); const it = catalog.find(c => c.name === nm) || catalog.find(c => norm(c.name) === norm(nm));
     if (!it){ toast('اختار الصنف من القائمة'); return; } if (!(q > 0)){ toast('اكتب الكمية'); return; }
