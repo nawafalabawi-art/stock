@@ -521,7 +521,10 @@ function closeSheet(){ if ($('#sheet').hidden) return; if (history.state && hist
 window.addEventListener('popstate', hideSheet);
 $('#sheetBg').onclick = closeSheet;
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
-const readNum = el => { const v = (el.value || '').replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[٫,]/g, '.').trim(); return v === '' ? null : +v; };
+// يقبل فارزة الآلاف (1,424.4) والفاصلة العشرية العربية (12٫5) والأرقام العربية
+const readNum = el => { let v = (el.value || '').replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[\s٬]/g, '');
+  if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(v)) v = v.replace(/,/g, ''); else v = v.replace(/[٫,]/g, '.');
+  return v === '' ? null : +v; };
 
 const isKg = it => /^(kg|كغم|كيلو)$/i.test(String(it.unit || '').trim());
 const unitLabel = it => isKg(it) ? 'كغم' : ({EA: 'قطعة', PACK: 'باكيت', BUNCH: 'حزمة', BAG: 'كيس', BOX: 'صندوق'}[String(it.unit || '').toUpperCase()] || it.unit || '');
